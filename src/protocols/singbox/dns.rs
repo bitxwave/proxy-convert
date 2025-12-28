@@ -7,16 +7,16 @@ use serde_with::skip_serializing_none;
 #[skip_serializing_none]
 #[derive(Default, Serialize, Deserialize, Debug)]
 pub struct DNS {
-    servers: Vec<Server>,
-    rules: Option<Vec<Rule>>,
-    r#final: String,
-    strategy: Option<Strategy>,
-    disable_cache: Option<bool>,
-    disable_expire: Option<bool>,
-    independent_cache: Option<bool>,
-    reverse_mapping: Option<bool>,
-    client_subnet: Option<String>,
-    fakeip: Option<FackIp>,
+    pub servers: Vec<Server>,
+    pub rules: Option<Vec<Rule>>,
+    pub r#final: String,
+    pub strategy: Option<Strategy>,
+    pub disable_cache: Option<bool>,
+    pub disable_expire: Option<bool>,
+    pub independent_cache: Option<bool>,
+    pub reverse_mapping: Option<bool>,
+    pub client_subnet: Option<String>,
+    pub fakeip: Option<FackIp>,
 }
 
 #[skip_serializing_none]

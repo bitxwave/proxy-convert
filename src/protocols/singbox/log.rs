@@ -12,6 +12,17 @@ pub struct Log {
     timestamp: bool,
 }
 
+impl Default for Log {
+    fn default() -> Self {
+        Self {
+            disabled: None,
+            level: LogLevel::default(),
+            output: None,
+            timestamp: default_timestamp(),
+        }
+    }
+}
+
 fn default_timestamp() -> bool {
     true
 }

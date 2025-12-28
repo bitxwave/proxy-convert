@@ -1,0 +1,634 @@
+# Proxy Config Converter
+
+一个现代化、可扩展的代理配置转换工具，支持多种代理配置格式之间的转换和多输入整合。
+
+## 📑 目录
+
+- [🚀 特性](#-特性)
+- [📦 安装](#-安装)
+- [🎯 快速开始](#-快速开始)
+- [📋 插值规则系统](#-插值规则系统-)
+- [⚙️ 配置](#️-配置)
+- [🏗️ 项目结构](#️-项目结构)
+- [🔧 开发](#-开发)
+- [❓ 常见问题解答](#-常见问题解答)
+- [🤝 贡献指南](#-贡献指南)
+- [📄 许可证](#-许可证)
+- [🙏 致谢](#-致谢)
+
+## 🚀 特性
+
+- **多协议支持**：支持 Clash、Sing-box、V2Ray 等多种代理配置格式
+- **多来源整合**：支持多个输入源的整合和模板规则应用 ✨
+- **插值规则系统**：强大的模板插值规则，支持复杂的节点选择和过滤 ✨
+- **插件化架构**：易于扩展新的协议支持
+- **现代化 CLI**：基于 clap 4.x 的友好命令行界面
+- **异步处理**：基于 tokio 的高性能异步处理
+- **结构化日志**：使用 tracing 的完整日志系统
+- **配置管理**：灵活的配置文件和环境变量支持
+- **错误处理**：完善的错误处理和用户友好的错误信息
+- **类型安全**：强类型系统，编译时检查
+
+## 📦 安装
+
+### 源码编译
+
+```bash
+git clone https://github.com/your-username/proxy-convert.git
+cd proxy-convert
+cargo build --release
+```
+
+### 使用 Cargo 安装
+
+```bash
+cargo install --git https://github.com/your-username/proxy-convert.git
+```
+
+## 🎯 快速开始
+
+### 基本用法
+
+#### 命令及说明
+
+- 转换订阅
+
+  ```bash
+  proxy-convert convert [OPTIONS] --source <SOURCE> [--source <SOURCE>...]
+  ```
+
+  **选项：**
+  - `--source <SOURCE>`：输入来源，格式：`name@type@source`
+  - `-t, --template <TEMPLATE>`：模板文件路径
+  - `-o, --output <OUTPUT>`：输出文件路径（默认：config.json）
+  - `-f, --format <FORMAT>`：输出格式（json/pretty/yaml，默认：pretty）
+  - `-F, --force`：强制覆盖输出文件
+  - `-l, --log-level <LOG_LEVEL>`：日志级别（默认：info）
+  - `-v, --verbose`：显示详细信息
+
+  - 来源格式说明
+
+    ```bash
+    name@type@source
+    ```
+
+    - `name`：来源名称，用于模板引用（可选，见下方说明）
+    - `type`：订阅类型（clash/sing-box/v2ray/auto）
+    - `source`：文件路径或URL
+
+    **重要说明：**
+    - 如果只有一个来源，可以省略 `name`，直接使用 `type@source` 格式
+    - 当省略 `name` 时，生成的节点标签不会添加来源前缀
+    - 多个来源时必须指定 `name` 以区分不同来源
+
+- **验证配置文件**：验证配置文件的格式和内容正确性
+
+  ```bash
+  proxy-convert validate <config_file>
+  ```
+
+- **生成模板**：
+
+  ```bash
+  proxy-convert template <protocol> --output <config_file>
+  ```
+
+- **显示版本信息**：
+
+  ```bash
+  proxy-convert version
+  ```
+
+#### 使用示例
+
+```bash
+# 单个来源（省略 name）
+proxy-convert convert \
+  --source "clash@./clash.yaml"
+
+# 单个来源（指定 name）
+proxy-convert convert \
+  --source "clash1@clash@./clash.yaml"
+
+# 多个来源（必须指定 name）
+proxy-convert convert \
+  --source "clash1@clash@./clash.yaml" \
+  --source "singbox1@sing-box@./singbox.json" \
+  --template template.json \
+  --output config.json
+
+# 其他命令
+proxy-convert validate config.json          # 验证配置文件
+proxy-convert template singbox --output template.json  # 生成模板
+proxy-convert version                      # 显示版本信息
+```
+
+## 📋 插值规则系统 ✨
+
+### 规则说明
+
+本项目支持强大的模板插值规则，每个规则以 `;` 结束（如果只有一个规则可以省略）。
+
+**插值规则特点：**
+
+- **统一性**：单一源和多源使用完全相同的插值规则
+- **灵活性**：支持复杂的标签过滤和来源指定
+- **可组合性**：多个规则可以组合使用，实现复杂的节点选择逻辑
+- **JSON 兼容**：所有插值规则都包含在双引号中，确保 JSON 格式正确
+
+### 基本插值规则
+
+#### 插入所有节点
+
+```json
+{
+  "outbounds": "{{ALL-TAG}}"
+}
+```
+
+#### 插入指定来源的所有节点
+
+```json
+{
+  "outbounds": "{{ALL-TAG:clash1}}"
+}
+```
+
+#### 插入多个来源的所有节点
+
+```json
+{
+  "outbounds": "{{ALL-TAG:clash1,singbox1}}"
+}
+```
+
+### 标签过滤插值规则
+
+#### 插入所有源中匹配标签的节点
+
+```json
+{
+  "outbounds": "{{INCLUDE-TAG:US,JP,SG}}"
+}
+```
+
+#### 插入多个来源中匹配标签的节点
+
+```json
+{
+  "outbounds": "{{INCLUDE-TAG:clash1@US,JP,singbox1@SG}}"
+}
+```
+
+**说明：** `{{INCLUDE-TAG:clash1@US,JP,singbox1@SG}}` 表示：
+
+- 插入 clash1 来源中匹配 US 的节点
+- 插入所有来源中匹配 JP 的节点  
+- 插入 singbox1 来源中匹配 SG 的节点
+
+### 排除规则
+
+#### 排除所有源中匹配标签的节点
+
+```json
+{
+  "outbounds": "{{EXCLUDE-TAG:CN,AD}}"
+}
+```
+
+#### 排除多个来源中匹配标签的节点
+
+```json
+{
+  "outbounds": "{{EXCLUDE-TAG:clash1@CN,AD,singbox1@BLOCKED}}"
+}
+```
+
+**说明：** `{{EXCLUDE-TAG:clash1@CN,AD,singbox1@BLOCKED}}` 表示：
+
+- 排除 clash1 来源中匹配 CN 的节点
+- 排除所有来源中匹配 AD 的节点
+- 排除 singbox1 来源中匹配 BLOCKED 的节点
+
+#### `INCLUDE-TAG` 和 `ECXCLUDE-TAG` 组合使用
+
+`{{INCLUDE-TAG}}` 和 `{{EXCLUDE-TAG}}` 同时存在于同一插值括号中时，它们的组合关系：
+
+- **INCLUDE-TAG**：首先选择匹配指定标签的节点
+- **EXCLUDE-TAG**：然后从已选择的节点中排除匹配指定标签的节点
+- **最终结果**：INCLUDE 的结果减去 EXCLUDE 的结果
+
+**示例：**
+
+```json
+{
+  "outbounds": [
+    "{{INCLUDE-TAG:US,JP;EXCLUDE-TAG:CN,AD}}",
+  ]
+}
+```
+
+**结果：** 最终只包含 US 和 JP 节点，但不包含 CN 和 AD 节点
+
+### 标签前缀规则
+
+**重要：** 标签前缀规则只适用于多个来源的情况
+
+当使用 `source-name@tag` 格式时，最终节点的标签会自动添加来源前缀：
+
+- 匹配 `clash1@US` 的节点，最终标签会包含 `clash1@US`
+- 匹配 `singbox1@SG` 的节点，最终标签会包含 `singbox1@SG`
+
+**单个来源的情况：**
+
+- 如果只有一个来源且没有指定 `name`，节点标签保持原样
+- 例如：`--source "clash@./clash.yaml"` 时，节点标签不会添加前缀
+
+**标签前缀的作用：**
+
+- **来源区分**：在多源环境中，可以清楚地区分节点来自哪个来源
+- **标签管理**：避免不同来源的相同标签产生冲突
+- **模板引用**：在模板中可以使用 `source-name@tag` 格式精确引用特定来源的节点
+
+### 模板示例
+
+```json
+{
+  "outbounds": [
+    {
+      "type": "urltest",
+      "tag": "香港节点",
+      "outbounds": "{{ALL-TAG:clash1}}",
+      "url": "https://www.gstatic.com/generate_204",
+      "interval": "300s"
+    },
+    {
+      "type": "urltest",
+      "tag": "美国节点",
+      "outbounds": "{{INCLUDE-TAG:US,JP}}",
+      "url": "https://www.gstatic.com/generate_204",
+      "interval": "300s"
+    },
+    {
+      "type": "urltest",
+      "tag": "新加坡节点",
+      "outbounds": "{{INCLUDE-TAG:singbox1@SG}}",
+      "url": "https://www.gstatic.com/generate_204",
+      "interval": "300s"
+    },
+    {
+      "type": "urltest",
+      "tag": "其他节点",
+      "outbounds": "{{EXCLUDE-TAG:US,JP,SG,CN}}",
+      "url": "https://www.gstatic.com/generate_204",
+      "interval": "300s"
+    }
+  ]
+}
+```
+
+## ⚙️ 配置
+
+### 配置文件
+
+程序会按以下顺序查找配置文件：
+
+1. 当前目录下的 `config.yaml` 或 `config.yml`
+2. 用户配置目录下的 `proxy-convert/config.yaml` 或 `config.yml`
+
+**配置文件优先级：**
+
+- 命令行参数 > 配置文件 > 环境变量 > 默认值
+
+### 配置示例
+
+```yaml
+# config.yaml
+# 基本配置
+user_agent: "ProxyConfigConverter/3.0.0"
+timeout_seconds: 30
+retry_count: 3
+cache_ttl_seconds: 3600
+
+# 日志配置
+log_level: info
+
+# 输入输出配置
+default_input_format: clash
+default_output_format: singbox
+output_format: json
+output: config.json
+
+# 模板目录
+template_dir: ~/.config/proxy-convert/templates
+
+# 来源配置（可选，也可以通过命令行参数指定）
+source:
+  - name: clash1
+    type: clash
+    path_or_url: ./clash.yaml
+  - name: singbox1
+    type: sing-box
+    path_or_url: ./singbox.json
+```
+
+**配置项说明：**
+
+- `user_agent`：HTTP 请求的用户代理字符串
+- `timeout_seconds`：网络请求超时时间（秒）
+- `retry_count`：网络请求重试次数
+- `cache_ttl_seconds`：缓存生存时间（秒）
+- `log_level`：日志级别（error/warn/info/debug/trace）
+- `default_input_format`：默认输入格式
+- `default_output_format`：默认输出格式
+- `output_format`：输出格式（json/pretty/yaml）
+- `output`：默认输出文件路径
+- `template_dir`：模板文件目录
+- `source`：预定义的来源列表
+
+### 环境变量
+
+所有配置项都可以通过环境变量覆盖，格式为 `PROXY_CONVERT_<KEY>`：
+
+```bash
+# 日志级别
+export PROXY_CONVERT_LOG_LEVEL=debug
+
+# 网络配置
+export PROXY_CONVERT_TIMEOUT_SECONDS=60
+export PROXY_CONVERT_RETRY_COUNT=5
+export PROXY_CONVERT_CACHE_TTL_SECONDS=7200
+
+# 输入输出格式
+export PROXY_CONVERT_DEFAULT_INPUT_FORMAT=clash
+export PROXY_CONVERT_DEFAULT_OUTPUT_FORMAT=v2ray
+export PROXY_CONVERT_OUTPUT_FORMAT=yaml
+
+# 输出路径
+export PROXY_CONVERT_OUTPUT=./output/config.json
+
+# 模板目录
+export PROXY_CONVERT_TEMPLATE_DIR=./templates
+```
+
+**环境变量使用场景：**
+
+- **容器化部署**：在 Docker 容器中设置环境变量
+- **CI/CD 流程**：在自动化流程中动态配置
+- **多环境部署**：不同环境使用不同的配置
+- **临时配置**：临时覆盖某些配置项
+
+## 🏗️ 项目结构
+
+```tree
+src/
+├── main.rs              # 程序入口，CLI 命令分发和程序初始化
+├── core/                # 核心模块
+│   ├── error.rs         # 错误处理，定义所有错误类型和错误转换
+│   ├── config.rs        # 配置管理，加载和管理配置文件
+│   ├── converter.rs     # 核心转换器，处理协议转换逻辑
+│   ├── http_client.rs   # HTTP 客户端，处理网络请求
+│   ├── multi_input.rs   # 多输入整合 ✨，管理多个输入源
+│   └── output.rs        # 输出管理，处理不同格式的输出
+├── protocols/           # 协议模块
+│   ├── mod.rs           # 协议注册表，管理所有协议转换器
+│   ├── common/          # 通用工具，共享的数据结构和工具函数
+│   ├── clash/           # Clash 协议支持，解析和生成 Clash 配置
+│   ├── singbox/         # Sing-box 协议支持，解析和生成 Sing-box 配置
+│   └── v2ray/           # V2Ray 协议支持，解析和生成 V2Ray 配置
+├── commands/            # 命令模块
+│   ├── cli.rs           # CLI 定义，使用 clap 定义命令行接口
+│   ├── convert.rs       # 转换命令 ✨，处理配置转换逻辑
+│   ├── validate.rs      # 验证命令，验证配置文件
+│   ├── template.rs      # 模板命令，生成模板文件
+│   └── version.rs       # 版本命令，显示版本信息
+└── utils/               # 工具模块
+    ├── file.rs          # 文件操作，文件读写和路径处理
+    ├── url.rs           # URL 处理，URL 解析和验证
+    └── template.rs      # 模板处理 ✨，插值规则解析和模板渲染
+```
+
+**模块职责说明：**
+
+- **core**：核心业务逻辑，包含配置管理、转换器、多输入整合等
+- **protocols**：协议支持，每种协议都有独立的模块
+- **commands**：CLI 命令实现，每个命令对应一个模块
+- **utils**：通用工具函数，提供文件、URL、模板等基础功能
+
+## 🔧 开发
+
+### 核心架构 ✨
+
+本项目支持多来源整合，主要组件包括：
+
+#### 1. 输入源管理
+
+- **统一格式**：所有来源使用 `name@type@source` 格式
+- **类型检测**：自动检测 clash、sing-box、v2ray 格式
+- **来源命名**：每个来源都有唯一名称用于模板引用
+
+#### 2. 插值规则系统
+
+- **统一规则**：单一源和多源使用完全相同的规则
+- **高级过滤**：支持复杂的基于标签的过滤
+- **来源特定规则**：支持 `source-name@tag` 格式
+- **自动前缀**：标签自动包含来源前缀
+
+#### 3. 模板引擎
+
+- **规则解析**：解析插值规则字符串
+- **节点过滤**：根据规则过滤和选择节点
+- **标签处理**：自动添加来源前缀
+- **模板渲染**：将节点信息插入到模板中
+
+#### 4. 节点选择
+
+- **标签匹配**：按标签过滤节点
+- **协议匹配**：按协议类型过滤节点
+- **模式匹配**：按名称模式过滤节点
+- **数量限制**：限制选择的节点数量
+
+#### 5. 转换规则
+
+- **重命名**：修改节点名称
+- **标签操作**：添加/移除标签
+- **参数修改**：修改节点参数
+
+### 添加新的协议支持
+
+1. 在 `src/protocols/` 下创建新的协议模块
+2. 实现 `ProtocolConverter` trait
+3. 在 `src/main.rs` 的 `init_protocol_registry()` 中注册新协议
+
+### 示例：添加新协议
+
+```rust
+// src/protocols/new_protocol/mod.rs
+use crate::utils::error::Result;
+use crate::protocols::{ProtocolConverter, ProxyServer};
+
+pub struct NewProtocolConverter;
+
+impl ProtocolConverter for NewProtocolConverter {
+    fn name(&self) -> &str {
+        "new_protocol"
+    }
+
+    fn supported_input_formats(&self) -> &[&str] {
+        &["json", "yaml"]
+    }
+
+    fn supported_output_formats(&self) -> &[&str] {
+        &["singbox", "clash"]
+    }
+
+    fn detect_format(&self, content: &str) -> Result<Option<String>> {
+        // 实现格式检测逻辑
+        Ok(None)
+    }
+
+    fn parse_input(&self, content: &str, format: &str) -> Result<Vec<ProxyServer>> {
+        // 实现输入解析逻辑
+        Ok(vec![])
+    }
+
+    fn generate_output(&self, servers: &[ProxyServer], format: &str, template: Option<&str>) -> Result<String> {
+        // 实现输出生成逻辑
+        Ok("".to_string())
+    }
+
+    fn validate_output(&self, content: &str, format: &str) -> Result<bool> {
+        // 实现输出验证逻辑
+        Ok(true)
+    }
+}
+```
+
+### 构建与测试
+
+```bash
+# 构建项目
+cargo build                    # 开发构建
+cargo build --release          # 发布构建
+
+# 运行测试
+cargo test                     # 运行所有测试
+cargo test -- --nocapture      # 显示测试输出
+cargo test -- --test-threads=1 # 单线程测试
+
+# 代码质量检查
+cargo clippy                   # 代码质量检查
+cargo clippy -- -D warnings    # 将警告视为错误
+
+# 代码格式化
+cargo fmt                      # 格式化代码
+cargo fmt --check              # 检查代码格式
+
+# 依赖检查
+cargo audit                    # 安全漏洞检查
+cargo outdated                 # 检查过时的依赖
+```
+
+### 开发环境设置
+
+```bash
+# 安装 Rust 工具链
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# 安装开发工具
+rustup component add rustfmt
+rustup component add clippy
+
+# 安装有用的开发工具
+cargo install cargo-watch      # 文件变化时自动重新构建
+cargo install cargo-expand     # 宏展开工具
+cargo install cargo-tree       # 依赖树可视化
+```
+
+### 调试和日志
+
+```bash
+# 设置日志级别
+export RUST_LOG=debug
+
+# 运行程序并显示详细日志
+cargo run -- --log-level debug
+
+# 使用 cargo-watch 进行开发
+cargo watch -x check -x test -x run
+```
+
+## 📄 许可证
+
+本项目采用 MIT 许可证，详见 [LICENSE](LICENSE) 文件。
+
+## 🤝 贡献指南
+
+我们欢迎所有形式的贡献！如果您想为项目做出贡献，请：
+
+### 贡献方式
+
+1. **报告问题**：在 GitHub Issues 中报告 bug 或提出功能建议
+2. **提交代码**：Fork 项目并提交 Pull Request
+3. **改进文档**：帮助完善文档和示例
+4. **分享经验**：在 Discussions 中分享使用经验和最佳实践
+
+### 开发流程
+
+1. Fork 项目到您的 GitHub 账户
+2. 创建功能分支：`git checkout -b feature/your-feature`
+3. 提交更改：`git commit -am 'Add some feature'`
+4. 推送分支：`git push origin feature/your-feature`
+5. 创建 Pull Request
+
+### 代码规范
+
+- 遵循 Rust 官方编码规范
+- 使用 `cargo fmt` 格式化代码
+- 通过 `cargo clippy` 检查代码质量
+- 为新功能添加测试用例
+- 更新相关文档
+
+## 🙏 致谢
+
+- [clap](https://github.com/clap-rs/clap) - 命令行参数解析库
+- [tokio](https://github.com/tokio-rs/tokio) - 异步运行时
+- [serde](https://github.com/serde-rs/serde) - 序列化框架
+- [tracing](https://github.com/tokio-rs/tracing) - 结构化日志
+
+## ❓ 常见问题解答
+
+### Q: 如何处理多个来源中相同标签的节点？
+
+A: 当多个来源包含相同标签的节点时，程序会自动为节点名称添加来源前缀。例如：
+
+- `clash1` 来源的 `US` 节点会变成 `clash1@US`
+- `singbox1` 来源的 `US` 节点会变成 `singbox1@US`
+
+### Q: 插值规则中的标签匹配是精确匹配还是模糊匹配？
+
+A: 目前支持精确匹配。标签必须完全匹配才能被选中或排除。
+
+### Q: 如何添加自定义的插值规则？
+
+A: 可以在 `src/utils/template.rs` 中的 `InterpolationRule` 枚举中添加新的规则类型，并在 `TemplateEngine` 中实现相应的处理逻辑。
+
+### Q: 配置文件中的 source 配置和命令行参数有什么区别？
+
+A: 配置文件中的 source 配置是预定义的来源列表，可以通过命令行参数覆盖。命令行参数的优先级更高。
+
+### Q: 如何处理网络请求失败的情况？
+
+A: 程序支持重试机制，可以通过配置文件设置 `retry_count` 和 `timeout_seconds` 来控制重试行为。
+
+### Q: 如何扩展支持新的代理协议？
+
+A: 参考文档中的"添加新的协议支持"部分，实现 `ProtocolConverter` trait 并在协议注册表中注册。
+
+### Q: 模板文件中的插值规则必须用引号包围吗？
+
+A: 是的，为了确保 JSON 格式的正确性，所有插值规则都必须用双引号包围。
+
+---
+
+**注意**：本项目仅用于学习和研究目的，请遵守当地法律法规。

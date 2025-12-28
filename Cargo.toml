@@ -1,13 +1,60 @@
 [package]
-name = "subscription_convert"
-version = "1.0.0-alpha.1"
+name = "proxy-convert"
+version = "2.0.0"
 edition = "2021"
+authors = ["Messica <Messica@example.com>"]
+description = "A modern, extensible tool for converting between different proxy configuration formats with multi-input integration support (Clash, Sing-box, V2Ray, etc.)"
+license = "MIT"
+repository = "https://github.com/picopock/proxy-convert"
+keywords = ["proxy", "clash", "sing-box", "v2ray", "subscription", "converter", "configuration", "multi-input", "integration"]
+categories = ["command-line-utilities", "network-programming"]
 
 [dependencies]
-clap = { version = "4", features = ["derive"] }
-reqwest = { version = "0", default-features = false, features = ["blocking", "json", "rustls-tls"]}
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-serde_with = "3"
-serde_yaml = "0.9.33"
-url = "2"
+
+clap = { version = "4.5", features = ["derive"] }
+
+reqwest = { version = "0.12", features = ["json", "rustls-tls-native-roots"] }
+tokio = { version = "1.48", features = ["full"] }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["preserve_order"] }
+serde_yaml = "0.9"
+
+anyhow = "1.0"
+thiserror = "2.0"
+indexmap = "2.12"
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+config = "0.15"
+dirs = "6.0"
+
+url = "2.5"
+serde_with = "3.15"
+chrono = { version = "0.4", features = ["serde"] }
+regex = "1.12"
+
+cached = { version = "0.56", features = ["async"] }
+base64 = "0.22.1"
+urlencoding = "2.1"
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3.23"
+wiremock = "0.6"
+
+[[bin]]
+name = "proxy-convert"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.dev]
+opt-level = 0
+debug = true

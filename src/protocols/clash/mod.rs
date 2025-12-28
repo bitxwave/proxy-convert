@@ -1,6 +1,9 @@
+//! Clash Protocol Support Module
+
 pub mod dns;
 pub mod proxy;
 pub mod proxy_group;
+pub mod template_processor;
 
 use serde::{Deserialize, Serialize};
 
