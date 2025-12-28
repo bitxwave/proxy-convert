@@ -1,19 +1,23 @@
 //! Validate command module
 
-use crate::utils::error::{ConvertError, Result};
 use crate::core::config::AppConfig;
 use crate::protocols::ProtocolRegistry;
+use crate::utils::error::{ConvertError, Result};
 use tracing::info;
 
 /// Handle validate command
 pub async fn handle_validate(
     validate_cmd: &crate::commands::cli::Commands,
     _config: &AppConfig,
-    registry: &ProtocolRegistry,
+    _registry: &ProtocolRegistry,
 ) -> Result<()> {
     // 提取 Validate 命令的参数
-    let (file, format) = match validate_cmd {
-        crate::commands::cli::Commands::Validate { file, format } => (file, format),
+    let (file, protocol, _format) = match validate_cmd {
+        crate::commands::cli::Commands::Validate {
+            file,
+            protocol,
+            format,
+        } => (file, protocol, format),
         _ => {
             return Err(ConvertError::ConfigValidationError(
                 "Expected Validate command".to_string(),
@@ -21,38 +25,91 @@ pub async fn handle_validate(
         }
     };
 
-    info!(
-        "Starting configuration file validation: {}",
-        file.to_str().unwrap()
-    );
-
-    // 读取配置文件
-    let _content =
-        std::fs::read_to_string(file.to_str().unwrap()).map_err(|e| ConvertError::IoError(e))?;
-
-    // 检测格式
-    let detected_format = if let Ok(Some((fmt, desc))) = registry.auto_detect_format(&_content) {
-        tracing::info!("自动检测到格式: {} - {}", fmt, desc);
-        fmt
-    } else {
-        // 如果自动检测失败，使用命令行指定的格式
-        let cli_format = format!("{:?}", format);
-        tracing::info!("使用命令行指定的格式: {}", cli_format);
-        cli_format
+    // 验证协议
+    let protocol_lower = protocol.to_lowercase();
+    let protocol_name = match protocol_lower.as_str() {
+        "singbox" | "sing-box" => "singbox",
+        "clash" => "clash",
+        "v2ray" => "v2ray",
+        _ => {
+            return Err(ConvertError::ConfigValidationError(format!(
+                "Unsupported protocol: {}. Supported: singbox, clash, v2ray",
+                protocol
+            )))
+        }
     };
 
-    // 获取对应的转换器 - 暂时跳过
-    let _converter = registry.get(&detected_format).ok_or_else(|| {
-        ConvertError::ConfigValidationError(format!("不支持的格式: {}", detected_format))
-    })?;
+    let file_path = file.to_string_lossy();
+    info!("Validating configuration file: {}", file_path);
+    info!("Protocol: {}", protocol_name);
 
-    // 验证配置 - 暂时跳过验证
-    info!(
-        "配置文件验证通过: {} (格式: {})",
-        file.to_str().unwrap(),
-        detected_format
-    );
+    // 检查文件是否存在
+    if !file.exists() {
+        return Err(ConvertError::file_not_found(&file_path));
+    }
 
-    info!("Validation completed");
+    // 读取配置文件
+    let content = std::fs::read_to_string(&*file_path).map_err(|e| ConvertError::IoError(e))?;
+
+    // 根据协议验证配置
+    match protocol_name {
+        "singbox" => validate_singbox_config(&content)?,
+        "clash" => validate_clash_config(&content)?,
+        "v2ray" => validate_v2ray_config(&content)?,
+        _ => unreachable!(),
+    }
+
+    info!("Validation passed: {} (protocol: {})", file_path, protocol_name);
+    Ok(())
+}
+
+/// Validate Sing-box configuration
+fn validate_singbox_config(content: &str) -> Result<()> {
+    // Try to parse as JSON
+    let config: serde_json::Value =
+        serde_json::from_str(content).map_err(|e| ConvertError::JsonParseError(e))?;
+
+    // Check required fields for Sing-box
+    if config.get("outbounds").is_none() {
+        return Err(ConvertError::ConfigValidationError(
+            "Missing required field 'outbounds' for Sing-box config".to_string(),
+        ));
+    }
+
+    info!("Sing-box config structure is valid");
+    Ok(())
+}
+
+/// Validate Clash configuration
+fn validate_clash_config(content: &str) -> Result<()> {
+    // Try to parse as YAML or JSON
+    let config: serde_json::Value = serde_yaml::from_str(content)
+        .map_err(|e| ConvertError::ConfigValidationError(format!("YAML parse error: {}", e)))?;
+
+    // Check required fields for Clash
+    if config.get("proxies").is_none() && config.get("proxy-providers").is_none() {
+        return Err(ConvertError::ConfigValidationError(
+            "Missing required field 'proxies' or 'proxy-providers' for Clash config".to_string(),
+        ));
+    }
+
+    info!("Clash config structure is valid");
+    Ok(())
+}
+
+/// Validate V2Ray configuration
+fn validate_v2ray_config(content: &str) -> Result<()> {
+    // Try to parse as JSON
+    let config: serde_json::Value =
+        serde_json::from_str(content).map_err(|e| ConvertError::JsonParseError(e))?;
+
+    // Check required fields for V2Ray
+    if config.get("outbounds").is_none() {
+        return Err(ConvertError::ConfigValidationError(
+            "Missing required field 'outbounds' for V2Ray config".to_string(),
+        ));
+    }
+
+    info!("V2Ray config structure is valid");
     Ok(())
 }

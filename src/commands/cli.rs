@@ -66,6 +66,10 @@ pub enum Commands {
         #[arg(value_name = "PATH")]
         file: PathBuf,
 
+        /// Target protocol (sing-box, clash, v2ray). Default: sing-box
+        #[arg(short, long, value_name = "PROTOCOL", default_value = "singbox")]
+        protocol: String,
+
         /// Output format
         #[arg(short, long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
@@ -74,8 +78,12 @@ pub enum Commands {
     /// Generate default template
     Template {
         /// Output path
-        #[arg(short, long, value_name = "PATH", default_value = "template.json")]
-        output: PathBuf,
+        #[arg(short, long, value_name = "PATH")]
+        output: Option<PathBuf>,
+
+        /// Target protocol (sing-box, clash, v2ray). Default: sing-box
+        #[arg(short, long, value_name = "PROTOCOL", default_value = "singbox")]
+        protocol: String,
 
         /// Template type
         #[arg(short, long, value_enum, default_value_t = TemplateType::Basic)]
