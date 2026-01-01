@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum Multiplex {
     Inbound {
@@ -19,7 +19,7 @@ pub enum Multiplex {
     },
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum MultiplexProtocol {
     Smux,
@@ -33,7 +33,7 @@ impl Default for MultiplexProtocol {
     }
 }
 
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Brutal {
     #[serde(skip_serializing_if = "Option::is_none")]
     enabled: Option<bool>,

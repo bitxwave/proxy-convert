@@ -18,7 +18,7 @@ pub mod vmess;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum Inbound {
     Direct(direct::Direct),

@@ -1,7 +1,7 @@
 //! Validate command module
 
 use crate::core::config::AppConfig;
-use crate::protocols::ProtocolRegistry;
+use crate::protocols::{clash, singbox, v2ray, ProtocolRegistry};
 use crate::utils::error::{ConvertError, Result};
 use tracing::info;
 
@@ -12,12 +12,8 @@ pub async fn handle_validate(
     _registry: &ProtocolRegistry,
 ) -> Result<()> {
     // 提取 Validate 命令的参数
-    let (file, protocol, _format) = match validate_cmd {
-        crate::commands::cli::Commands::Validate {
-            file,
-            protocol,
-            format,
-        } => (file, protocol, format),
+    let (file, protocol) = match validate_cmd {
+        crate::commands::cli::Commands::Validate { file, protocol } => (file, protocol),
         _ => {
             return Err(ConvertError::ConfigValidationError(
                 "Expected Validate command".to_string(),
@@ -28,9 +24,9 @@ pub async fn handle_validate(
     // 验证协议
     let protocol_lower = protocol.to_lowercase();
     let protocol_name = match protocol_lower.as_str() {
-        "singbox" | "sing-box" => "singbox",
-        "clash" => "clash",
-        "v2ray" => "v2ray",
+        "singbox" | "sing-box" => singbox::PROTOCOL_NAME,
+        "clash" => clash::PROTOCOL_NAME,
+        "v2ray" => v2ray::PROTOCOL_NAME,
         _ => {
             return Err(ConvertError::ConfigValidationError(format!(
                 "Unsupported protocol: {}. Supported: singbox, clash, v2ray",
@@ -53,9 +49,9 @@ pub async fn handle_validate(
 
     // 根据协议验证配置
     match protocol_name {
-        "singbox" => validate_singbox_config(&content)?,
-        "clash" => validate_clash_config(&content)?,
-        "v2ray" => validate_v2ray_config(&content)?,
+        singbox::PROTOCOL_NAME => validate_singbox_config(&content)?,
+        clash::PROTOCOL_NAME => validate_clash_config(&content)?,
+        v2ray::PROTOCOL_NAME => validate_v2ray_config(&content)?,
         _ => unreachable!(),
     }
 

@@ -1,9 +1,9 @@
-use crate::singbox::common::base::Strategy;
+use crate::protocols::singbox::common::base::Strategy;
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Direct {
     pub tag: String,
     pub override_address: Option<String>,
@@ -23,7 +23,7 @@ pub struct Direct {
     pub fallback_delay: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ProxyProtocol {
     V1 = 1,
     V2,

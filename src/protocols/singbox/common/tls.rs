@@ -2,7 +2,7 @@ use super::base::{SingleOrMultipleValue, Strategy};
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum Tls {
     Inbound(Inbound),
@@ -10,7 +10,7 @@ pub enum Tls {
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Inbound {
     enabled: Option<bool>,
     server_name: Option<String>,
@@ -28,7 +28,7 @@ pub struct Inbound {
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct ACME {
     domain: Option<Vec<String>>,
     data_directory: Option<String>,
@@ -43,7 +43,7 @@ pub struct ACME {
     dns01_challenge: Option<Dns01Challenge>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "provider", rename_all = "lowercase")]
 pub enum Dns01Challenge {
     Alidns {
@@ -57,14 +57,14 @@ pub enum Dns01Challenge {
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct ExternalAccount {
     key_id: Option<String>,
     mac_key: Option<String>,
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Ech {
     enabled: Option<bool>,
     pq_signature_schemes_enabled: Option<bool>,
@@ -74,7 +74,7 @@ pub struct Ech {
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Reality {
     enabled: Option<bool>,
     handshake: Option<RealityHandshake>,
@@ -85,7 +85,7 @@ pub struct Reality {
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct RealityHandshake {
     server: Option<String>,
     server_port: Option<u16>,
@@ -104,7 +104,7 @@ pub struct RealityHandshake {
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Outbound {
     enabled: Option<bool>,
     disable_sni: Option<bool>,
@@ -122,7 +122,7 @@ pub struct Outbound {
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct OutboundUtils {
     enabled: Option<bool>,
     fingerprint: Option<String>,

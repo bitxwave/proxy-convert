@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Snell {
     pub name: String,
     #[serde(rename = "interface-name")]
@@ -18,7 +18,7 @@ pub struct Snell {
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct ObfsOpts {
     pub mode: Option<String>,
     pub host: Option<String>,

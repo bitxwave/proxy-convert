@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Experimental {
     cache_file: Option<CacheFile>,
     clash_api: Option<ClashApi>,
@@ -10,7 +10,7 @@ pub struct Experimental {
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct CacheFile {
     enabled: Option<bool>,
     path: Option<String>,
@@ -21,7 +21,7 @@ pub struct CacheFile {
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct ClashApi {
     external_controller: Option<String>,
     external_ui: Option<String>,
@@ -32,14 +32,14 @@ pub struct ClashApi {
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct V2rayApi {
     listen: Option<String>,
     stats: Option<V2rayStats>,
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct V2rayStats {
     enabled: Option<String>,
     inbounds: Option<Vec<String>>,

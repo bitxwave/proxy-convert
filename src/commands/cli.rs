@@ -69,10 +69,6 @@ pub enum Commands {
         /// Target protocol (sing-box, clash, v2ray). Default: sing-box
         #[arg(short, long, value_name = "PROTOCOL", default_value = "singbox")]
         protocol: String,
-
-        /// Output format
-        #[arg(short, long, value_enum, default_value_t = OutputFormat::Json)]
-        format: OutputFormat,
     },
 
     /// Generate default template
@@ -84,10 +80,6 @@ pub enum Commands {
         /// Target protocol (sing-box, clash, v2ray). Default: sing-box
         #[arg(short, long, value_name = "PROTOCOL", default_value = "singbox")]
         protocol: String,
-
-        /// Template type
-        #[arg(short, long, value_enum, default_value_t = TemplateType::Basic)]
-        template_type: TemplateType,
     },
 
     /// Display version information
@@ -114,26 +106,6 @@ pub enum LogLevel {
     Debug,
     /// Trace information
     Trace,
-}
-
-#[derive(ValueEnum, Clone, Debug)]
-pub enum TemplateType {
-    /// Basic template
-    Basic,
-    /// Full template (includes all features)
-    Full,
-    /// Minimal template
-    Minimal,
-}
-
-impl std::fmt::Display for TemplateType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TemplateType::Basic => write!(f, "basic"),
-            TemplateType::Full => write!(f, "full"),
-            TemplateType::Minimal => write!(f, "minimal"),
-        }
-    }
 }
 
 impl From<LogLevel> for tracing::Level {

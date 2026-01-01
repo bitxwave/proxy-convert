@@ -19,7 +19,7 @@ pub mod wireguard;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum Outbound {
     Direct(direct::Direct),

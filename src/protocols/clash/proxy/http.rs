@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Http {
     pub name: String,
     #[serde(rename = "interface-name")]

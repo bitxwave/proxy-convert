@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct DNS {
     pub servers: Vec<Server>,
     pub rules: Option<Vec<Rule>>,
@@ -20,7 +20,7 @@ pub struct DNS {
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Server {
     tag: String,
     r#type: String,
@@ -32,13 +32,13 @@ pub struct Server {
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Response {
     rcode: String,
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Rule {
     inbound: Option<SingleOrMultipleValue>,
     ip_version: Option<IpVersion>,
@@ -82,7 +82,7 @@ pub struct Rule {
     rules: Option<Vec<Rule>>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum Protocol {
     Http,
@@ -95,7 +95,7 @@ pub enum Protocol {
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct FackIp {
     enabled: Option<bool>,
     inet4_range: Option<String>,

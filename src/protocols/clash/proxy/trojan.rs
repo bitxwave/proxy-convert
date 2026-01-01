@@ -3,7 +3,7 @@ use serde_with::skip_serializing_none;
 use std::collections::HashMap;
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Trojan {
     pub name: String,
     #[serde(rename = "interface-name")]
@@ -26,20 +26,20 @@ pub struct Trojan {
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct GrpcOpts {
     #[serde(rename = "grpc-service-name")]
     pub grpc_service_name: Option<String>,
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct WsOpts {
     pub path: Option<String>,
     pub headers: Option<HashMap<String, HttpHeader>>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum HttpHeader {
     Str(String),

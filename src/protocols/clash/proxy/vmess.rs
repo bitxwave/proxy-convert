@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Vmess {
     pub name: String,
     #[serde(rename = "interface-name")]
@@ -34,14 +34,14 @@ pub struct Vmess {
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct HttpOpts {
     pub method: Option<String>,
     pub path: Option<Vec<String>>,
     pub headers: Option<HashMap<String, HttpHeader>>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum HttpHeader {
     Str(String),
@@ -49,21 +49,21 @@ pub enum HttpHeader {
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct H2Opts {
     pub path: Option<String>,
     pub host: Option<Vec<String>>,
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct GrpcOpts {
     #[serde(rename = "grpc-service-name")]
     pub grpc_service_name: Option<String>,
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct WSOpts {
     pub path: Option<String>,
     pub headers: Option<HashMap<String, HttpHeader>>,

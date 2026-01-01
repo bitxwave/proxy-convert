@@ -1,9 +1,9 @@
-use crate::singbox::common::{base::Strategy, multiplex::Multiplex, tls, transport::Transport};
+use crate::protocols::singbox::common::{base::Strategy, multiplex::Multiplex, tls, transport::Transport};
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Vmess {
     pub tag: String,
     pub users: Vec<User>,
@@ -24,7 +24,7 @@ pub struct Vmess {
     pub transport: Option<Transport>,
 }
 
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct User {
     pub name: String,
     pub uuid: String,

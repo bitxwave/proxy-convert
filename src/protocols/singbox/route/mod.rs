@@ -7,7 +7,7 @@ use serde_with::skip_serializing_none;
 use super::common::base::Strategy;
 
 #[skip_serializing_none]
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Route {
     pub default_domain_resolver: StringOrDomainResolver,
     pub rules: Vec<rule::Rule>,
@@ -34,7 +34,7 @@ impl Default for Route {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum StringOrDomainResolver {
     Str(String),
@@ -42,7 +42,7 @@ pub enum StringOrDomainResolver {
 }
 
 #[skip_serializing_none]
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DomainResolver {
     server: String,
     strategy: Option<Strategy>,

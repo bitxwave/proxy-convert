@@ -1,9 +1,9 @@
 use super::rule::Rule;
-use crate::singbox::common::base::{LogicalMode, Network, QueryType, SingleOrMultipleValue};
+use crate::protocols::singbox::common::base::{LogicalMode, Network, QueryType, SingleOrMultipleValue};
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum RuleSet {
     Remote(Remote),
@@ -11,7 +11,7 @@ pub enum RuleSet {
     Inline(Inline),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Remote {
     tag: String,
     format: Format,
@@ -20,28 +20,28 @@ pub struct Remote {
     update_interval: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum Format {
     Source,
     Binary,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Local {
     tag: String,
     format: Format,
     path: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Inline {
     tag: String,
     rules: Vec<HeadlessRule>,
 }
 
 #[skip_serializing_none]
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct HeadlessRule {
     query_type: Option<SingleOrMultipleValue<QueryType>>,
     network: Option<SingleOrMultipleValue<Network>>,

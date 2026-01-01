@@ -1,10 +1,10 @@
 use super::base::UdpOverTcp;
-use crate::singbox::common::base::{Network, Strategy};
+use crate::protocols::singbox::common::base::{Network, Strategy};
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Socks {
     pub tag: String,
     pub server: String,

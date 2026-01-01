@@ -1,9 +1,9 @@
-use crate::singbox::common::{base::Strategy, tls};
+use crate::protocols::singbox::common::{base::Strategy, tls};
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Tuic {
     pub tag: String,
     pub users: Vec<User>,
@@ -26,14 +26,14 @@ pub struct Tuic {
     pub tls: Option<tls::Inbound>,
 }
 
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct User {
     pub name: String,
     pub uuid: String,
     pub password: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum CongestionControl {
     Cubic,

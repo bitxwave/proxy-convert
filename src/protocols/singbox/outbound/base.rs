@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum UdpOverTcp {
     Enabled(bool),
@@ -10,7 +10,7 @@ pub enum UdpOverTcp {
     },
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum UdpOverTcpVersion {
     V1 = 1,
     V2,

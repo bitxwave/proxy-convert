@@ -1,9 +1,9 @@
-use crate::singbox::common::base::Strategy;
+use crate::protocols::singbox::common::base::Strategy;
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Mixed {
     pub tag: String,
     pub listen: Option<String>,
@@ -22,7 +22,7 @@ pub struct Mixed {
     pub set_system_proxy: Option<bool>,
 }
 
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct User {
     pub username: String,
     pub password: String,

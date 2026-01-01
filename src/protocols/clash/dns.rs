@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub struct DNS {
     pub enable: Option<bool>,
@@ -14,7 +14,7 @@ pub struct DNS {
     pub fallback_filter: Option<FallbackFilter>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FallbackFilter {
     pub geoip: Option<bool>,
     #[serde(rename = "ipcidr")]

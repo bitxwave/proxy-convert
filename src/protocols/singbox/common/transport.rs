@@ -3,7 +3,7 @@ use serde_with::skip_serializing_none;
 use std::collections::HashMap;
 
 #[skip_serializing_none]
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum Transport {
     HTTP(HTTP),
@@ -14,7 +14,7 @@ pub enum Transport {
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct HTTP {
     host: Option<Vec<String>>,
     path: Option<String>,
@@ -25,7 +25,7 @@ pub struct HTTP {
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct WS {
     path: Option<String>,
     headers: Option<HashMap<String, String>>,
@@ -34,11 +34,11 @@ pub struct WS {
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Quic {}
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct GRPC {
     service_name: Option<String>,
     idle_timeout: Option<String>,
@@ -47,7 +47,7 @@ pub struct GRPC {
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct HttpUpgrade {
     host: Option<String>,
     path: Option<String>,

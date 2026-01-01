@@ -1,10 +1,10 @@
 use super::base::User;
-use crate::singbox::common::{base::Strategy, multiplex::Multiplex, tls, transport::Transport};
+use crate::protocols::singbox::common::{base::Strategy, multiplex::Multiplex, tls, transport::Transport};
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Trojan {
     pub tag: String,
     pub users: Vec<User>,
@@ -27,11 +27,11 @@ pub struct Trojan {
     pub transport: Option<Transport>,
 }
 
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Fallback {
     pub server: String,
     pub server_port: u16,
 }
 
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct FallbackForAlpn {}

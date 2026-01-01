@@ -1,9 +1,9 @@
-use crate::singbox::common::base::{SingleOrMultipleValue, Stack, Strategy};
+use crate::protocols::singbox::common::base::{SingleOrMultipleValue, Stack, Strategy};
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Tun {
     pub tag: String,
     pub address: Option<SingleOrMultipleValue>,
@@ -48,13 +48,13 @@ pub struct Tun {
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Platform {
     pub http_proxy: Option<HttpProxy>,
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct HttpProxy {
     pub server: String,
     pub server_port: u16,

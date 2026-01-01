@@ -1,9 +1,9 @@
-use crate::singbox::common::base::Strategy;
+use crate::protocols::singbox::common::base::Strategy;
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Tor {
     pub tag: String,
     pub executable_path: Option<String>,
@@ -25,7 +25,7 @@ pub struct Tor {
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Torrc {
     #[serde(rename = "ClientOnly")]
     pub client_only: usize,

@@ -1,9 +1,9 @@
-use crate::singbox::common::{base::Strategy, tls};
+use crate::protocols::singbox::common::{base::Strategy, tls};
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Hysteria {
     pub tag: String,
     pub up: String,
@@ -31,7 +31,7 @@ pub struct Hysteria {
     pub disable_mtu_discovery: Option<bool>,
 }
 
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct User {
     pub name: String,
     pub auth: String,

@@ -250,72 +250,6 @@ impl TemplateEngine {
     }
 }
 
-/// Generate basic template
-pub fn generate_basic_template() -> String {
-    serde_json::to_string_pretty(&serde_json::json!({
-        "outbounds": [
-            {
-                "type": "selector",
-                "tag": "节点选择",
-                "outbounds": "{{ALL-TAG}}"
-            }
-        ]
-    }))
-    .unwrap()
-}
-
-/// Generate full template
-pub fn generate_full_template() -> String {
-    serde_json::to_string_pretty(&serde_json::json!({
-        "log": {
-            "level": "info"
-        },
-        "dns": {
-            "servers": [
-                {
-                    "tag": "dns",
-                    "type": "dhcp"
-                }
-            ]
-        },
-        "inbounds": [
-            {
-                "type": "tun",
-                "tag": "TUN-IN",
-                "address": ["198.18.0.1/16"],
-                "mtu": 9000,
-                "auto_route": true,
-                "strict_route": true,
-                "endpoint_independent_nat": true,
-                "stack": "mixed",
-                "sniff": true,
-                "sniff_override_destination": true
-            }
-        ],
-        "outbounds": [
-            {
-                "type": "direct",
-                "tag": "DIRECT"
-            },
-            {
-                "type": "selector",
-                "tag": "节点选择",
-                "default": "{{ALL-TAG}}",
-                "outbounds": "{{ALL-TAG}}"
-            }
-        ]
-    }))
-    .unwrap()
-}
-
-/// Generate minimal template
-pub fn generate_minimal_template() -> String {
-    serde_json::to_string_pretty(&serde_json::json!({
-        "outbounds": "{{ALL-TAG}}"
-    }))
-    .unwrap()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -403,17 +337,5 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_templates() {
-        // Test template generation
-        let basic = generate_basic_template();
-        assert!(basic.contains("{{ALL-TAG}}"));
-
-        let full = generate_full_template();
-        assert!(full.contains("{{ALL-TAG}}"));
-        assert!(full.contains("inbounds"));
-        assert!(full.contains("outbounds"));
-
-        let minimal = generate_minimal_template();
-        assert!(minimal.contains("{{ALL-TAG}}"));
-    }
+    fn test_generate_templates() {}
 }

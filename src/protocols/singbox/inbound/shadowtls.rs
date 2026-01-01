@@ -1,10 +1,10 @@
 use super::base::User;
-use crate::singbox::common::base::{Handshake, Strategy};
+use crate::protocols::singbox::common::base::{Handshake, Strategy};
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Shadowtls {
     pub tag: String,
     pub handshake: Handshake,
@@ -26,7 +26,7 @@ pub struct Shadowtls {
     pub strict_mode: Option<bool>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Version {
     V1 = 1,
     V2,

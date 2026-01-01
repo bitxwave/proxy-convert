@@ -2,10 +2,9 @@
 
 use crate::commands::convert::{SourceMeta, SourceProtocol};
 use crate::core::config::AppConfig;
-use crate::protocols::ProtocolRegistry;
+use crate::protocols::{clash, singbox, v2ray, ProtocolRegistry};
 use crate::utils::error::{ConvertError, Result};
 use crate::utils::source::parser::{Config, Source};
-use serde_json;
 use std::io::{Error, ErrorKind};
 use std::path::Path;
 
@@ -193,20 +192,20 @@ impl SourceLoader {
         std::fs::read_to_string(path).map_err(|e| ConvertError::IoError(e))
     }
 
-    /// Parse configuration based on format
+    /// Parse configuration based on format (strongly typed)
     fn parse_config(content: &str, format: &str, registry: &ProtocolRegistry) -> Result<Config> {
         match format.to_lowercase().as_str() {
             "clash" => {
-                let config_value = Self::parse_json_or_yaml(content)?;
-                Ok(Config::Clash(config_value))
+                let config = Self::parse_clash_config(content)?;
+                Ok(Config::Clash(config))
             }
             "singbox" => {
-                let config_value = Self::parse_json_or_yaml(content)?;
-                Ok(Config::SingBox(config_value))
+                let config = Self::parse_singbox_config(content)?;
+                Ok(Config::SingBox(config))
             }
             "v2ray" => {
-                let config_value = Self::parse_json_or_yaml(content)?;
-                Ok(Config::V2Ray(config_value))
+                let config = Self::parse_v2ray_config(content)?;
+                Ok(Config::V2Ray(config))
             }
             "subscription" => {
                 let servers = registry.parse_subscription_format_pub(content)?;
@@ -223,20 +222,54 @@ impl SourceLoader {
         }
     }
 
-    /// Parse JSON or YAML content
-    fn parse_json_or_yaml(content: &str) -> Result<serde_json::Value> {
+    /// Parse Clash configuration (strongly typed)
+    fn parse_clash_config(content: &str) -> Result<clash::Config> {
         // Try to parse as JSON first
-        if let Ok(config) = serde_json::from_str::<serde_json::Value>(content) {
+        if let Ok(config) = serde_json::from_str::<clash::Config>(content) {
             return Ok(config);
         }
 
         // Try to parse as YAML
-        if let Ok(config) = serde_yaml::from_str::<serde_json::Value>(content) {
+        if let Ok(config) = serde_yaml::from_str::<clash::Config>(content) {
             return Ok(config);
         }
 
         Err(ConvertError::ConfigValidationError(
-            "Failed to parse configuration as JSON or YAML".to_string(),
+            "Failed to parse Clash configuration".to_string(),
+        ))
+    }
+
+    /// Parse Sing-box configuration (strongly typed)
+    fn parse_singbox_config(content: &str) -> Result<singbox::Config> {
+        // Try to parse as JSON first
+        if let Ok(config) = serde_json::from_str::<singbox::Config>(content) {
+            return Ok(config);
+        }
+
+        // Try to parse as YAML
+        if let Ok(config) = serde_yaml::from_str::<singbox::Config>(content) {
+            return Ok(config);
+        }
+
+        Err(ConvertError::ConfigValidationError(
+            "Failed to parse Sing-box configuration".to_string(),
+        ))
+    }
+
+    /// Parse V2Ray configuration (strongly typed)
+    fn parse_v2ray_config(content: &str) -> Result<v2ray::Config> {
+        // Try to parse as JSON first
+        if let Ok(config) = serde_json::from_str::<v2ray::Config>(content) {
+            return Ok(config);
+        }
+
+        // Try to parse as YAML
+        if let Ok(config) = serde_yaml::from_str::<v2ray::Config>(content) {
+            return Ok(config);
+        }
+
+        Err(ConvertError::ConfigValidationError(
+            "Failed to parse V2Ray configuration".to_string(),
         ))
     }
 }

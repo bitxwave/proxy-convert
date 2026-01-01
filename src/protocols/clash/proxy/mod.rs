@@ -16,7 +16,7 @@ pub use socks5::Socks5;
 pub use trojan::Trojan;
 pub use vmess::Vmess;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum Proxy {
     Ss(Shadowsocks),

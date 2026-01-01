@@ -1,5 +1,5 @@
 use super::base::User;
-use crate::singbox::common::{
+use crate::protocols::singbox::common::{
     base::{Network, Strategy},
     multiplex::Multiplex,
 };
@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Shadowsocks {
     pub tag: String,
     pub method: String,
@@ -30,7 +30,7 @@ pub struct Shadowsocks {
     pub multiplex: Option<Multiplex>,
 }
 
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Distination {
     pub name: String,
     pub server: String,

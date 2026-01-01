@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum Strategy {
     PreferIpv4,
@@ -16,7 +16,7 @@ impl Default for Strategy {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum SingleOrMultipleValue<T = String> {
     Single(T),
@@ -29,20 +29,20 @@ impl Default for SingleOrMultipleValue {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum IpVersion {
     V4 = 4,
     V6 = 6,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum QueryType {
     Code(usize),
     Name(String),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum Network {
     Tcp,
@@ -55,7 +55,7 @@ impl Default for Network {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum LogicalMode {
     And,
@@ -63,7 +63,7 @@ pub enum LogicalMode {
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Handshake {
     detour: Option<String>,
     bind_interface: Option<String>,
@@ -79,7 +79,7 @@ pub struct Handshake {
     fallback_delay: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum Stack {
     System,
@@ -94,7 +94,7 @@ impl Default for Stack {
 }
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct ListenParams {
     listen: Option<String>,
     listen_port: Option<u16>,

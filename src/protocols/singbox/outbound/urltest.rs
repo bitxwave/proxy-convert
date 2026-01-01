@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Urltest {
     pub tag: String,
     pub url: Option<String>,

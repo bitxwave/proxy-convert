@@ -134,19 +134,6 @@ impl AppConfig {
         paths
     }
 
-    /// Get the default configuration directory path
-    pub fn get_default_config_dir() -> Option<PathBuf> {
-        dirs::config_dir().map(|dir| dir.join("proxy-convert"))
-    }
-
-    /// Get the list of configuration search paths (for display purposes)
-    pub fn get_config_search_paths() -> Vec<String> {
-        Self::get_config_paths()
-            .iter()
-            .map(|p| p.display().to_string())
-            .collect()
-    }
-
     /// Merge CLI parameters into config (CLI parameters take precedence)
     pub fn merge_cli_params(&mut self, cli: &crate::commands::cli::Commands) -> Result<()> {
         if let crate::commands::cli::Commands::Convert {

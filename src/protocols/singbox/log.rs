@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
 #[skip_serializing_none]
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Log {
     disabled: Option<bool>,
     #[serde(default)]
@@ -27,7 +27,7 @@ fn default_timestamp() -> bool {
     true
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum LogLevel {
     Trace,
