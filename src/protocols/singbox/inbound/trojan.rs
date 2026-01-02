@@ -1,28 +1,21 @@
+use crate::protocols::singbox::common::{ base::ListenParams, multiplex::Multiplex, tls, transport::Transport };
 use super::base::User;
-use crate::protocols::singbox::common::{base::Strategy, multiplex::Multiplex, tls, transport::Transport};
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
+use indexmap::IndexMap;
 
 #[skip_serializing_none]
 #[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Trojan {
-    pub tag: String,
+    pub tag: Option<String>,
+
+    #[serde(flatten)]
+    pub listen_params: ListenParams,
+
     pub users: Vec<User>,
-    pub listen: Option<String>,
-    pub listen_port: Option<u16>,
-    pub tcp_fast_open: Option<bool>,
-    pub tcp_multi_path: Option<bool>,
-    pub udp_fragment: Option<bool>,
-    pub udp_timeout: Option<String>,
-    pub detour: Option<String>,
-    pub sniff: Option<bool>,
-    pub sniff_override_destination: Option<bool>,
-    pub sniff_timeout: Option<String>,
-    pub domain_strategy: Option<Strategy>,
-    pub udp_disable_domain_unmapping: Option<bool>,
     pub tls: Option<tls::Inbound>,
     pub fallback: Option<Fallback>,
-    pub fallback_for_alpn: Option<FallbackForAlpn>,
+    pub fallback_for_alpn: Option<IndexMap<String, Fallback>>,
     pub multiplex: Option<Multiplex>,
     pub transport: Option<Transport>,
 }
@@ -32,6 +25,3 @@ pub struct Fallback {
     pub server: String,
     pub server_port: u16,
 }
-
-#[derive(Default, Serialize, Deserialize, Debug, Clone)]
-pub struct FallbackForAlpn {}

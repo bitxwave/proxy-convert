@@ -1,24 +1,16 @@
-use super::base::User;
-use crate::protocols::singbox::common::{base::Strategy, tls};
-use serde::{Deserialize, Serialize};
+use crate::protocols::singbox::common::{ base::ListenParams, tls };
+use serde::{ Deserialize, Serialize };
 use serde_with::skip_serializing_none;
+use super::base::User;
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug, Clone)]
-pub struct Http {
-    pub tag: String,
-    pub listen: Option<String>,
-    pub listen_port: Option<u16>,
-    pub tcp_fast_open: Option<bool>,
-    pub tcp_multi_path: Option<bool>,
-    pub udp_fragment: Option<bool>,
-    pub udp_timeout: Option<String>,
-    pub detour: Option<String>,
-    pub sniff: Option<bool>,
-    pub sniff_override_destination: Option<bool>,
-    pub sniff_timeout: Option<String>,
-    pub domain_strategy: Option<Strategy>,
-    pub udp_disable_domain_unmapping: Option<bool>,
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct HTTP {
+    pub tag: Option<String>,
+    
+    #[serde(flatten)]
+    pub listen_params: ListenParams,
+
     pub users: Option<Vec<User>>,
     pub tls: Option<tls::Inbound>,
     pub set_system_proxy: Option<bool>,

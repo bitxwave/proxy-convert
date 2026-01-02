@@ -1,34 +1,26 @@
-use crate::protocols::singbox::common::{base::Strategy, tls};
+use crate::protocols::singbox::common::{base::ListenParams, tls};
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Hysteria {
-    pub tag: String,
+    pub tag: Option<String>,
+
+    #[serde(flatten)]
+    pub listen_params: ListenParams,
+
     pub up: String,
-    pub up_mbps: usize,
+    pub up_mbps: u32,
     pub down: String,
-    pub down_mbps: usize,
-    pub tls: tls::Inbound,
-    pub listen: Option<String>,
-    pub listen_port: Option<u16>,
-    pub tcp_fast_open: Option<bool>,
-    pub tcp_multi_path: Option<bool>,
-    pub udp_fragment: Option<bool>,
-    pub udp_timeout: Option<String>,
-    pub detour: Option<String>,
-    pub sniff: Option<bool>,
-    pub sniff_override_destination: Option<bool>,
-    pub sniff_timeout: Option<String>,
-    pub domain_strategy: Option<Strategy>,
-    pub udp_disable_domain_unmapping: Option<bool>,
+    pub down_mbps: u32,
     pub obfs: Option<String>,
     pub users: Option<Vec<User>>,
     pub recv_window_conn: Option<usize>,
     pub recv_window_client: Option<usize>,
     pub max_conn_client: Option<usize>,
     pub disable_mtu_discovery: Option<bool>,
+    pub tls: tls::Inbound,
 }
 
 #[derive(Default, Serialize, Deserialize, Debug, Clone)]

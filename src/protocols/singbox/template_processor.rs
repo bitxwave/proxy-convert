@@ -388,6 +388,7 @@ mod tests {
     use crate::commands::convert::{SourceMeta, SourceProtocol};
     use crate::utils::source::parser::{Config, Source};
     use std::collections::HashMap;
+    use crate::protocols::{clash, singbox};
 
     fn create_test_sources() -> IndexMap<String, Source> {
         let mut sources = IndexMap::new();
@@ -400,6 +401,9 @@ mod tests {
                 {"name": "JP-Node-01", "type": "vmess", "server": "3.3.3.3", "port": 443, "uuid": "test-uuid"},
             ]
         });
+        // Deserialize into strongly-typed clash::Config
+        let clash1_config: clash::Config =
+            serde_json::from_value(clash1_config).unwrap();
         sources.insert(
             "clash1".to_string(),
             Source {
@@ -420,6 +424,9 @@ mod tests {
                 {"tag": "CN-Node-01", "type": "shadowsocks", "server": "5.5.5.5", "server_port": 443, "method": "aes-256-gcm", "password": "test"},
             ]
         });
+        // Deserialize into strongly-typed singbox::Config
+        let singbox1_config: singbox::Config =
+            serde_json::from_value(singbox1_config).unwrap();
         sources.insert(
             "singbox1".to_string(),
             Source {

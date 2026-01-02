@@ -1,28 +1,32 @@
-use super::base::User;
 use crate::protocols::singbox::common::{
-    base::{Network, Strategy},
+    base::{ Network, ListenParams },
     tls,
 };
-use serde::{Deserialize, Serialize};
+use super::base::User;
+use serde::{ Deserialize, Serialize };
 use serde_with::skip_serializing_none;
 
 #[skip_serializing_none]
 #[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Naive {
-    pub tag: String,
-    pub users: Vec<User>,
-    pub listen: Option<String>,
-    pub listen_port: Option<u16>,
-    pub tcp_fast_open: Option<bool>,
-    pub tcp_multi_path: Option<bool>,
-    pub udp_fragment: Option<bool>,
-    pub udp_timeout: Option<String>,
-    pub detour: Option<String>,
-    pub sniff: Option<bool>,
-    pub sniff_override_destination: Option<bool>,
-    pub sniff_timeout: Option<String>,
-    pub domain_strategy: Option<Strategy>,
-    pub udp_disable_domain_unmapping: Option<bool>,
+    pub tag: Option<String>,
     pub network: Option<Network>,
+
+    #[serde(flatten)]
+    pub listen_params: ListenParams,
+    
+    pub users: Vec<User>,
+    pub quic_congestion_control: Option<QuicCongestionControl>,
     pub tls: Option<tls::Inbound>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum QuicCongestionControl {
+    Bbr,
+    BbrStandard,
+    Bbr2,
+    Bbr2Variant,
+    Cubic,
+    Reno,
 }

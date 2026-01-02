@@ -9,23 +9,6 @@ pub enum Tls {
     Outbound(Outbound),
 }
 
-#[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug, Clone)]
-pub struct Inbound {
-    enabled: Option<bool>,
-    server_name: Option<String>,
-    alpn: Option<Vec<String>>,
-    min_version: Option<String>,
-    max_version: Option<String>,
-    cipher_suites: Option<Vec<String>>,
-    certificate: Option<Vec<String>>,
-    certificate_path: Option<String>,
-    key: Option<Vec<String>>,
-    key_path: Option<String>,
-    acme: Option<ACME>,
-    ech: Option<Ech>,
-    reality: Option<Reality>,
-}
 
 #[skip_serializing_none]
 #[derive(Default, Serialize, Deserialize, Debug, Clone)]
@@ -103,27 +86,87 @@ pub struct RealityHandshake {
     fallback_delay: Option<String>,
 }
 
-#[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug, Clone)]
-pub struct Outbound {
-    enabled: Option<bool>,
-    disable_sni: Option<bool>,
-    server_name: Option<String>,
-    insecure: Option<bool>,
-    alpn: Option<Vec<String>>,
-    min_version: Option<String>,
-    max_version: Option<String>,
-    cipher_suites: Option<Vec<String>>,
-    certificate: Option<Vec<String>>,
-    certificate_path: Option<String>,
-    ech: Option<Ech>,
-    utls: Option<OutboundUtils>,
-    reality: Option<Reality>,
-}
+
 
 #[skip_serializing_none]
 #[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct OutboundUtils {
     enabled: Option<bool>,
     fingerprint: Option<String>,
+}
+
+#[skip_serializing_none]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Inbound {
+    pub enabled: Option<bool>,
+    pub certificate: Option<SingleOrMultipleValue<String>>,
+    pub key: Option<SingleOrMultipleValue<String>>,
+    pub key_password: Option<String>,
+    pub fingerprint: Option<TlsFingerprint>,
+    pub alpn: Option<Vec<String>>,
+    pub alpn_mode: Option<AlpnMode>,
+    pub min_version: Option<String>,
+    pub max_version: Option<String>,
+    pub session_ticket: Option<bool>,
+    pub curves: Option<Vec<String>>,
+    pub signature_algorithms: Option<String>,
+    pub key_share_mode: Option<String>,
+    pub only_grease: Option<bool>,
+    pub force_ciphersuites: Option<Vec<String>>,
+    pub session_cache_size: Option<u32>,
+    pub session_cache_timeout: Option<u64>,
+    pub client_auth: Option<bool>,
+    pub client_ca: Option<SingleOrMultipleValue<String>>,
+}
+
+#[skip_serializing_none]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Outbound {
+    pub enabled: Option<bool>,
+    pub insecure: Option<bool>,
+    pub server_name: Option<String>,
+    pub certificate: Option<SingleOrMultipleValue<String>>,
+    pub fingerprint: Option<TlsFingerprint>,
+    pub alpn: Option<Vec<String>>,
+    pub alpn_mode: Option<AlpnMode>,
+    pub min_version: Option<String>,
+    pub max_version: Option<String>,
+    pub session_ticket: Option<bool>,
+    pub curves: Option<Vec<String>>,
+    pub signature_algorithms: Option<String>,
+    pub key_share_mode: Option<String>,
+    pub only_grease: Option<bool>,
+    pub force_ciphersuites: Option<Vec<String>>,
+    pub early_data_size: Option<u32>,
+    pub session_cache_size: Option<u32>,
+    pub session_cache_timeout: Option<u64>,
+    pub client_certificate: Option<ClientCertificateConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum TlsFingerprint {
+    Chrome,
+    Firefox,
+    Safari,
+    Ios,
+    Android,
+    Edge,
+    Random,
+    Randomized,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AlpnMode {
+    Auto,
+    Strict,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ClientCertificateConfig {
+    pub certificate_path: Option<String>,
+    pub key_path: Option<String>,
+    pub password: Option<String>,
+    pub ocsp_stapling: Option<u64>,
 }

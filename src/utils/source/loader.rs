@@ -224,11 +224,6 @@ impl SourceLoader {
 
     /// Parse Clash configuration (strongly typed)
     fn parse_clash_config(content: &str) -> Result<clash::Config> {
-        // Try to parse as JSON first
-        if let Ok(config) = serde_json::from_str::<clash::Config>(content) {
-            return Ok(config);
-        }
-
         // Try to parse as YAML
         if let Ok(config) = serde_yaml::from_str::<clash::Config>(content) {
             return Ok(config);
@@ -246,11 +241,6 @@ impl SourceLoader {
             return Ok(config);
         }
 
-        // Try to parse as YAML
-        if let Ok(config) = serde_yaml::from_str::<singbox::Config>(content) {
-            return Ok(config);
-        }
-
         Err(ConvertError::ConfigValidationError(
             "Failed to parse Sing-box configuration".to_string(),
         ))
@@ -260,11 +250,6 @@ impl SourceLoader {
     fn parse_v2ray_config(content: &str) -> Result<v2ray::Config> {
         // Try to parse as JSON first
         if let Ok(config) = serde_json::from_str::<v2ray::Config>(content) {
-            return Ok(config);
-        }
-
-        // Try to parse as YAML
-        if let Ok(config) = serde_yaml::from_str::<v2ray::Config>(content) {
             return Ok(config);
         }
 

@@ -4,34 +4,25 @@ pub mod rule_set;
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
+use crate::protocols::singbox::common::base::{NetworkStrategy, NetworkType};
+
 use super::common::base::Strategy;
 
 #[skip_serializing_none]
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Route {
-    pub default_domain_resolver: StringOrDomainResolver,
     pub rules: Vec<rule::Rule>,
     pub rule_set: Vec<rule_set::RuleSet>,
-    pub r#final: String,
+    pub r#final: Option<String>,
     pub auto_detect_interface: Option<bool>,
     pub override_android_vpn: Option<bool>,
     pub default_interface: Option<String>,
-    pub default_mark: Option<usize>,
-}
-
-impl Default for Route {
-    fn default() -> Self {
-        Self {
-            default_domain_resolver: StringOrDomainResolver::Str("default".to_string()),
-            rules: Vec::new(),
-            rule_set: Vec::new(),
-            r#final: "DIRECT".to_string(),
-            auto_detect_interface: Some(true),
-            override_android_vpn: None,
-            default_interface: None,
-            default_mark: None,
-        }
-    }
+    pub default_mark: Option<u32>,
+    pub default_domain_resolver: Option<StringOrDomainResolver>,
+    pub default_network_strategy: Option<NetworkStrategy>,
+    pub default_network_type: Option<Vec<NetworkType>>,
+    pub default_fallback_network_type: Option<Vec<NetworkType>>,
+    pub default_fallback_delay: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

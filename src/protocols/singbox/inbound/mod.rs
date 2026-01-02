@@ -1,20 +1,21 @@
 pub mod base;
 pub mod direct;
-pub mod http;
-pub mod hysteria;
-pub mod hysteria2;
 pub mod mixed;
-pub mod naive;
-pub mod redirect;
-pub mod shadowsocks;
-pub mod shadowtls;
 pub mod socks;
-pub mod tproxy;
-pub mod trojan;
-pub mod tuic;
-pub mod tun;
-pub mod vless;
+pub mod http;
+pub mod shadowsocks;
 pub mod vmess;
+pub mod trojan;
+pub mod naive;
+pub mod hysteria;
+pub mod shadowtls;
+pub mod tuic;
+pub mod hysteria2;
+pub mod vless;
+pub mod anytls;
+pub mod tun;
+pub mod redirect;
+pub mod tproxy;
 
 use serde::{Deserialize, Serialize};
 
@@ -24,17 +25,18 @@ pub enum Inbound {
     Direct(direct::Direct),
     Mixed(mixed::Mixed),
     Socks(socks::Socks),
-    Http(http::Http),
+    Http(http::HTTP),
     Shadowsocks(shadowsocks::Shadowsocks),
-    Vmess(vmess::Vmess),
+    Vmess(vmess::VMess),
     Trojan(trojan::Trojan),
     Naive(naive::Naive),
     Hysteria(hysteria::Hysteria),
-    Shadowtls(shadowtls::Shadowtls),
-    Vless(vless::Vless),
-    Tuic(tuic::Tuic),
+    Shadowtls(shadowtls::ShadowTLS),
+    Tuic(tuic::TUIC),
     Hysteria2(hysteria2::Hysteria2),
+    Vless(vless::VLESS),
+    Anytls(anytls::AnyTLS),
     Tun(tun::Tun),
     Redirect(redirect::Redirect),
-    Tproxy(tproxy::Tproxy),
+    Tproxy(tproxy::TProxy),
 }

@@ -11,9 +11,9 @@ pub enum Multiplex {
     Outbound {
         enabled: bool,
         protocol: MultiplexProtocol,
-        max_connections: usize,
-        min_streams: usize,
-        max_streams: usize,
+        max_connections: u32,
+        min_streams: u32,
+        max_streams: u32,
         padding: bool,
         brutal: Brutal,
     },
@@ -37,6 +37,6 @@ impl Default for MultiplexProtocol {
 pub struct Brutal {
     #[serde(skip_serializing_if = "Option::is_none")]
     enabled: Option<bool>,
-    up_mbps: usize,
-    down_mbps: usize,
+    up_mbps: u32,
+    down_mbps: u32,
 }

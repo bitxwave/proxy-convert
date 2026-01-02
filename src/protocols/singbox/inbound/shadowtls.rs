@@ -1,29 +1,24 @@
 use super::base::User;
-use crate::protocols::singbox::common::base::{Handshake, Strategy};
-use serde::{Deserialize, Serialize};
+use crate::protocols::singbox::common::base::{ Handshake, ListenParams };
+use indexmap::IndexMap;
+use serde::{ Deserialize, Serialize };
 use serde_with::skip_serializing_none;
 
 #[skip_serializing_none]
-#[derive(Default, Serialize, Deserialize, Debug, Clone)]
-pub struct Shadowtls {
-    pub tag: String,
-    pub handshake: Handshake,
-    pub handshake_for_server_name: Handshake,
-    pub listen: Option<String>,
-    pub listen_port: Option<u16>,
-    pub tcp_fast_open: Option<bool>,
-    pub tcp_multi_path: Option<bool>,
-    pub udp_fragment: Option<bool>,
-    pub udp_timeout: Option<String>,
-    pub detour: Option<String>,
-    pub sniff: Option<bool>,
-    pub sniff_override_destination: Option<bool>,
-    pub sniff_timeout: Option<String>,
-    pub domain_strategy: Option<Strategy>,
-    pub udp_disable_domain_unmapping: Option<bool>,
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ShadowTLS {
+    pub tag: Option<String>,
+
+    #[serde(flatten)]
+    pub listen_params: ListenParams,
+
     pub version: Option<Version>,
+    pub password: Option<String>,
     pub users: Option<Vec<User>>,
+    pub handshake: Handshake,
+    pub handshake_for_server_name: Option<IndexMap<String, Handshake>>,
     pub strict_mode: Option<bool>,
+    pub wildcard_sni: Option<WildcardSNI>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -31,4 +26,12 @@ pub enum Version {
     V1 = 1,
     V2,
     V3,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum WildcardSNI {
+    Off,
+    Authed,
+    All,
 }

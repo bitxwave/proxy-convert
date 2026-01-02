@@ -9,27 +9,27 @@ pub mod log;
 pub mod outbound;
 pub mod route;
 pub mod template_processor;
+pub mod ntp;
+pub mod endpoint;
+pub mod certificate;
+pub mod service;
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use serde_with::skip_serializing_none;
 
+#[skip_serializing_none]
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Config {
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub log: Option<log::Log>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub dns: Option<dns::DNS>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub inbounds: Option<Vec<inbound::Inbound>>,
-    #[serde(default)]
+    pub ntp: Option<ntp::NTP>,
+    pub certificate: Option<certificate::Certificate>,
+    pub endpoints: Option<Vec<endpoint::Endpoint>>,
+    pub inbounds: Vec<inbound::Inbound>,
     pub outbounds: Vec<outbound::Outbound>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub route: Option<route::Route>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    pub services: Option<Vec<service::Service>>,
     pub experimental: Option<experimental::Experimental>,
-    /// Capture unknown fields
-    #[serde(flatten)]
-    pub extra: HashMap<String, serde_json::Value>,
 }
 
 /// Protocol name
