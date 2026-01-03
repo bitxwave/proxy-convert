@@ -10,9 +10,3 @@ pub struct Direct {
     #[serde(flatten)]
     pub dial_params: DialParams,
 }
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum ProxyProtocol {
-    V1 = 1,
-    V2,
-}

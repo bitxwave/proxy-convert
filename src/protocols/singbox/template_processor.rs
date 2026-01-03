@@ -94,11 +94,14 @@ impl SingboxProcessor {
         }
 
         // cipher → security (if not already set)
-        if !config.contains_key("security") {
-            if let Some(cipher) = params.get("cipher") {
-                config.insert("security".to_string(), cipher.clone());
+        // Skip if cipher is "auto" since sing-box VMess security defaults to "auto"
+        if let Some(cipher) = config.get("security") {
+            let cipher_str = cipher.as_str().unwrap_or("");
+            if cipher_str == "auto" {
+                config.remove("security");
             }
         }
+
 
         // TLS handling
         let tls_enabled = params
@@ -551,7 +554,6 @@ impl ProtocolProcessor for SingboxProcessor {
                 serde_json::Value::String(password.clone()),
             );
         }
-
         // VMess specific handling
         if is_vmess {
             Self::convert_vmess_params_to_singbox(&mut config, &node.parameters);

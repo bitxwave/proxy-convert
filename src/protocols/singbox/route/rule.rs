@@ -1,5 +1,5 @@
 use crate::protocols::singbox::common::base::{
-    ClashMode, IpVersion, LogicalMode, Network, NetworkType, SingleOrMultipleValue, Strategy,
+    IpVersion, LogicalMode, Network, NetworkType, SingleOrMultipleValue, Strategy,
 };
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};

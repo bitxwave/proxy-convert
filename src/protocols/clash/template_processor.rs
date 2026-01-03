@@ -120,7 +120,16 @@ impl ProtocolProcessor for ClashProcessor {
             }
 
             // Add other parameters
-            let skip_keys = ["udp", "name", "type", "server", "port", "server_port", "tag", "method"];
+            let skip_keys = [
+                "udp",
+                "name",
+                "type",
+                "server",
+                "port",
+                "server_port",
+                "tag",
+                "method",
+            ];
             for (key, value) in &node.parameters {
                 if !(is_shadowsocks && key == "udp") && !skip_keys.contains(&key.as_str()) {
                     config.insert(key.clone(), value.clone());
@@ -152,10 +161,15 @@ impl ClashProcessor {
         }
 
         // security → cipher
+        // If sing-box has no security field, it defaults to "auto", so we need to set cipher: auto in Clash
         if let Some(security) = params.get("security") {
             config.insert("cipher".to_string(), security.clone());
-        } else if let Some(method) = &node.method {
-            config.insert("cipher".to_string(), serde_json::Value::String(method.clone()));
+        } else {
+            // Default to "auto" if no security is specified (sing-box default)
+            config.insert(
+                "cipher".to_string(),
+                serde_json::Value::String("auto".to_string()),
+            );
         }
 
         // UDP support - Clash needs explicit setting
@@ -164,7 +178,11 @@ impl ClashProcessor {
         // TLS handling
         if let Some(tls) = params.get("tls") {
             if let Some(tls_obj) = tls.as_object() {
-                if tls_obj.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false) {
+                if tls_obj
+                    .get("enabled")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+                {
                     config.insert("tls".to_string(), serde_json::Value::Bool(true));
 
                     // server_name → servername
@@ -204,7 +222,10 @@ impl ClashProcessor {
                                 ws_opts.insert("max-early-data".to_string(), early_data.clone());
                             }
                             if let Some(header_name) = transport_obj.get("early_data_header_name") {
-                                ws_opts.insert("early-data-header-name".to_string(), header_name.clone());
+                                ws_opts.insert(
+                                    "early-data-header-name".to_string(),
+                                    header_name.clone(),
+                                );
                             }
                             if !ws_opts.is_empty() {
                                 config.insert(
@@ -216,7 +237,8 @@ impl ClashProcessor {
                         "grpc" => {
                             let mut grpc_opts = serde_json::Map::new();
                             if let Some(service_name) = transport_obj.get("service_name") {
-                                grpc_opts.insert("grpc-service-name".to_string(), service_name.clone());
+                                grpc_opts
+                                    .insert("grpc-service-name".to_string(), service_name.clone());
                             }
                             if !grpc_opts.is_empty() {
                                 config.insert(
@@ -327,7 +349,8 @@ impl ClashProcessor {
                         "grpc" => {
                             let mut grpc_opts = serde_json::Map::new();
                             if let Some(service_name) = transport_obj.get("service_name") {
-                                grpc_opts.insert("grpc-service-name".to_string(), service_name.clone());
+                                grpc_opts
+                                    .insert("grpc-service-name".to_string(), service_name.clone());
                             }
                             if !grpc_opts.is_empty() {
                                 config.insert(
@@ -357,7 +380,10 @@ impl ClashProcessor {
             ))
         })?;
 
-        if let Some(proxy_groups) = config.get_mut("proxy-groups").and_then(|v| v.as_array_mut()) {
+        if let Some(proxy_groups) = config
+            .get_mut("proxy-groups")
+            .and_then(|v| v.as_array_mut())
+        {
             for group in proxy_groups.iter_mut() {
                 if let Some(group_obj) = group.as_object_mut() {
                     if let Some(proxies) = group_obj.get_mut("proxies") {
