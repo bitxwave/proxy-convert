@@ -122,7 +122,7 @@ impl ConvertCommand {
                 std::fs::read_to_string(template_path).map_err(|e| ConvertError::IoError(e))?;
             template_engine.process_template(&template_content)?
         } else {
-            Self::generate_default_config(&template_engine)?
+            Self::generate_default_config(&template_engine, output_protocol)?
         };
 
         // Get output format and filename based on protocol
@@ -222,12 +222,17 @@ impl ConvertCommand {
         }
     }
 
-    /// generate default config template (sing-box format)
+    /// generate default config template based on output protocol
     fn generate_default_config(
         template_engine: &template_engine::TemplateEngine,
+        output_protocol: &OutputProtocol,
     ) -> Result<String> {
-        // Get default sing-box template from the protocol module
-        let template_str = singbox::generate_default_template();
+        // Get default template from the protocol module based on output protocol
+        let template_str = match output_protocol {
+            OutputProtocol::SingBox => singbox::generate_default_template(),
+            OutputProtocol::Clash => protocols::clash::generate_default_template(),
+            OutputProtocol::V2Ray => protocols::v2ray::generate_default_template(),
+        };
 
         // Process template to replace interpolation rules like {{ALL-TAG}}
         template_engine.process_template(&template_str)
@@ -292,23 +297,10 @@ pub async fn handle_convert(
 
     let output_protocol = OutputProtocol::from_str(output_protocol_str).ok_or_else(|| {
         ConvertError::ConfigValidationError(format!(
-            "不支持的输出协议: {}，支持的协议: sing-box(singbox), clash, v2ray。当前仅支持 sing-box",
+            "Unsupported output protocol: {}, supported protocols: sing-box(singbox), clash, v2ray",
             output_protocol_str
         ))
     })?;
-
-    // 验证当前仅支持 sing-box
-    match output_protocol {
-        OutputProtocol::SingBox => {
-            // 允许
-        }
-        OutputProtocol::Clash | OutputProtocol::V2Ray => {
-            return Err(ConvertError::ConfigValidationError(format!(
-                "输出协议 {} 暂不支持，当前仅支持 sing-box",
-                output_protocol_str
-            )));
-        }
-    }
 
     // 合并 output：CLI > 配置文件 > 默认值
     let final_output: Option<String> = output

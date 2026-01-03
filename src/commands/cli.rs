@@ -38,12 +38,11 @@ pub enum Commands {
         #[arg(short, long, value_name = "PATH")]
         output: Option<PathBuf>,
 
-        /// Output format
-        #[arg(short, long, value_name = "FORMAT", value_enum, default_value_t = OutputFormat::Json)]
-        format: OutputFormat,
-
-        /// Target output protocol (sing-box, clash, v2ray). Currently only sing-box is supported.
-        /// The output format and default filename will be automatically determined based on the protocol.
+        /// Target output protocol (sing-box, clash, v2ray).
+        /// The output format is determined by the protocol:
+        /// - sing-box: JSON only
+        /// - clash: YAML only
+        /// - v2ray: JSON only
         #[arg(long = "output-protocol", value_name = "PROTOCOL")]
         output_protocol: Option<String>,
 

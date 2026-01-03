@@ -77,6 +77,180 @@ impl SingboxProcessor {
         let names: Vec<String> = servers.iter().map(|s| s.name.clone()).collect();
         serde_json::to_string(&names).unwrap_or_else(|_| "[]".to_string())
     }
+
+    /// Convert Clash VMess parameters to Sing-box format
+    pub fn convert_vmess_params_to_singbox(
+        config: &mut serde_json::Map<String, serde_json::Value>,
+        params: &std::collections::HashMap<String, serde_json::Value>,
+    ) {
+        // UUID
+        if let Some(uuid) = params.get("uuid") {
+            config.insert("uuid".to_string(), uuid.clone());
+        }
+
+        // alterId → alter_id
+        if let Some(alter_id) = params.get("alterId").or(params.get("alter_id")) {
+            config.insert("alter_id".to_string(), alter_id.clone());
+        }
+
+        // cipher → security (if not already set)
+        if !config.contains_key("security") {
+            if let Some(cipher) = params.get("cipher") {
+                config.insert("security".to_string(), cipher.clone());
+            }
+        }
+
+        // TLS handling
+        let tls_enabled = params
+            .get("tls")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        if tls_enabled {
+            let mut tls_config = serde_json::Map::new();
+            tls_config.insert("enabled".to_string(), serde_json::Value::Bool(true));
+
+            // servername → server_name
+            if let Some(servername) = params.get("servername").or(params.get("sni")) {
+                tls_config.insert("server_name".to_string(), servername.clone());
+            }
+
+            // skip-cert-verify → insecure
+            if let Some(skip) = params.get("skip-cert-verify") {
+                tls_config.insert("insecure".to_string(), skip.clone());
+            }
+
+            config.insert("tls".to_string(), serde_json::Value::Object(tls_config));
+        }
+
+        // Transport handling (ws, grpc, h2, http)
+        if let Some(network) = params.get("network").and_then(|v| v.as_str()) {
+            let mut transport = serde_json::Map::new();
+            transport.insert(
+                "type".to_string(),
+                serde_json::Value::String(network.to_string()),
+            );
+
+            match network {
+                "ws" => {
+                    if let Some(ws_opts) = params.get("ws-opts") {
+                        if let Some(path) = ws_opts.get("path") {
+                            transport.insert("path".to_string(), path.clone());
+                        }
+                        if let Some(headers) = ws_opts.get("headers") {
+                            transport.insert("headers".to_string(), headers.clone());
+                        }
+                        if let Some(early_data) = ws_opts.get("max-early-data") {
+                            transport.insert("max_early_data".to_string(), early_data.clone());
+                        }
+                        if let Some(header_name) = ws_opts.get("early-data-header-name") {
+                            transport
+                                .insert("early_data_header_name".to_string(), header_name.clone());
+                        }
+                    }
+                }
+                "grpc" => {
+                    if let Some(grpc_opts) = params.get("grpc-opts") {
+                        if let Some(service_name) = grpc_opts.get("grpc-service-name") {
+                            transport.insert("service_name".to_string(), service_name.clone());
+                        }
+                    }
+                }
+                "h2" => {
+                    if let Some(h2_opts) = params.get("h2-opts") {
+                        if let Some(host) = h2_opts.get("host") {
+                            transport.insert("host".to_string(), host.clone());
+                        }
+                        if let Some(path) = h2_opts.get("path") {
+                            transport.insert("path".to_string(), path.clone());
+                        }
+                    }
+                }
+                "http" => {
+                    if let Some(http_opts) = params.get("http-opts") {
+                        if let Some(method) = http_opts.get("method") {
+                            transport.insert("method".to_string(), method.clone());
+                        }
+                        if let Some(path) = http_opts.get("path") {
+                            transport.insert("path".to_string(), path.clone());
+                        }
+                        if let Some(headers) = http_opts.get("headers") {
+                            transport.insert("headers".to_string(), headers.clone());
+                        }
+                    }
+                }
+                _ => {}
+            }
+
+            if transport.len() > 1 {
+                config.insert(
+                    "transport".to_string(),
+                    serde_json::Value::Object(transport),
+                );
+            }
+        }
+    }
+
+    /// Convert Clash Trojan parameters to Sing-box format
+    pub fn convert_trojan_params_to_singbox(
+        config: &mut serde_json::Map<String, serde_json::Value>,
+        params: &std::collections::HashMap<String, serde_json::Value>,
+    ) {
+        // TLS is typically enabled by default for Trojan
+        let mut tls_config = serde_json::Map::new();
+        tls_config.insert("enabled".to_string(), serde_json::Value::Bool(true));
+
+        if let Some(sni) = params.get("sni").or(params.get("servername")) {
+            tls_config.insert("server_name".to_string(), sni.clone());
+        }
+
+        if let Some(skip) = params.get("skip-cert-verify") {
+            tls_config.insert("insecure".to_string(), skip.clone());
+        }
+
+        if let Some(alpn) = params.get("alpn") {
+            tls_config.insert("alpn".to_string(), alpn.clone());
+        }
+
+        config.insert("tls".to_string(), serde_json::Value::Object(tls_config));
+
+        // Transport handling
+        if let Some(network) = params.get("network").and_then(|v| v.as_str()) {
+            let mut transport = serde_json::Map::new();
+            transport.insert(
+                "type".to_string(),
+                serde_json::Value::String(network.to_string()),
+            );
+
+            match network {
+                "ws" => {
+                    if let Some(ws_opts) = params.get("ws-opts") {
+                        if let Some(path) = ws_opts.get("path") {
+                            transport.insert("path".to_string(), path.clone());
+                        }
+                        if let Some(headers) = ws_opts.get("headers") {
+                            transport.insert("headers".to_string(), headers.clone());
+                        }
+                    }
+                }
+                "grpc" => {
+                    if let Some(grpc_opts) = params.get("grpc-opts") {
+                        if let Some(service_name) = grpc_opts.get("grpc-service-name") {
+                            transport.insert("service_name".to_string(), service_name.clone());
+                        }
+                    }
+                }
+                _ => {}
+            }
+
+            if transport.len() > 1 {
+                config.insert(
+                    "transport".to_string(),
+                    serde_json::Value::Object(transport),
+                );
+            }
+        }
+    }
 }
 
 impl ProtocolProcessor for SingboxProcessor {
@@ -329,8 +503,11 @@ impl ProtocolProcessor for SingboxProcessor {
     fn create_node_config(&self, node: &ProxyServer) -> String {
         let mut config = serde_json::Map::new();
 
-        // Normalize protocol name: ensure "ss" is converted to "shadowsocks" for sing-box
+        // Normalize protocol name
         let is_shadowsocks = node.protocol == "ss" || node.protocol == "shadowsocks";
+        let is_vmess = node.protocol == "vmess";
+        let is_trojan = node.protocol == "trojan";
+
         let protocol_type = if node.protocol == "ss" {
             "shadowsocks".to_string()
         } else {
@@ -354,10 +531,18 @@ impl ProtocolProcessor for SingboxProcessor {
 
         // Optional fields
         if let Some(method) = &node.method {
-            config.insert(
-                "method".to_string(),
-                serde_json::Value::String(method.clone()),
-            );
+            if is_shadowsocks {
+                config.insert(
+                    "method".to_string(),
+                    serde_json::Value::String(method.clone()),
+                );
+            } else if is_vmess {
+                // For VMess, method/cipher maps to "security"
+                config.insert(
+                    "security".to_string(),
+                    serde_json::Value::String(method.clone()),
+                );
+            }
         }
 
         if let Some(password) = &node.password {
@@ -367,14 +552,19 @@ impl ProtocolProcessor for SingboxProcessor {
             );
         }
 
-        // Additional parameters (skip "cipher" as it's handled as "method")
-        // For shadowsocks: sing-box supports UDP by default, so we don't need to add "udp" field
-        // When converting from Clash SS to sing-box SS, skip the "udp" field
-        for (key, value) in &node.parameters {
-            // Skip "cipher" parameter as it's already handled as "method" above
-            // Skip "udp" for shadowsocks - sing-box supports UDP by default
-            if key != "cipher" && !(is_shadowsocks && key == "udp") {
-                config.insert(key.clone(), value.clone());
+        // VMess specific handling
+        if is_vmess {
+            Self::convert_vmess_params_to_singbox(&mut config, &node.parameters);
+        } else if is_trojan {
+            Self::convert_trojan_params_to_singbox(&mut config, &node.parameters);
+        } else {
+            // Generic parameter handling
+            // Skip fields that are already handled or not needed in sing-box
+            let skip_keys = ["cipher", "udp", "name", "type", "server", "port"];
+            for (key, value) in &node.parameters {
+                if !skip_keys.contains(&key.as_str()) && !(is_shadowsocks && key == "udp") {
+                    config.insert(key.clone(), value.clone());
+                }
             }
         }
 

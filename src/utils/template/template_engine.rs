@@ -55,10 +55,17 @@ impl TemplateEngine {
             }
         };
 
-        // Step 3: Parse template as JSON
-        let mut config: serde_json::Value = serde_json::from_str(template).map_err(|e| {
-            ConvertError::ConfigValidationError(format!("Failed to parse template as JSON: {}", e))
-        })?;
+        // Step 3: Parse template as JSON or YAML
+        // Try JSON first, then fall back to YAML
+        let mut config: serde_json::Value = serde_json::from_str(template)
+            .or_else(|_| {
+                // Try to parse as YAML
+                serde_yaml::from_str::<serde_json::Value>(template)
+                    .map_err(|e| ConvertError::ConfigValidationError(format!(
+                        "Failed to parse template as JSON or YAML: {}",
+                        e
+                    )))
+            })?;
 
         // Step 4: Process interpolation rules in JSON structure
         let mut all_nodes = Vec::new();
