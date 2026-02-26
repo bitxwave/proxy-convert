@@ -12,7 +12,7 @@ env:
 jobs:
   build:
     name: Build ${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.runner || matrix.os }}
     strategy:
       fail-fast: false
       matrix:
@@ -29,11 +29,12 @@ jobs:
             target: x86_64-apple-darwin
           - os: macos-14
             target: aarch64-apple-darwin
-          # Windows
+          # Windows (aarch64 使用 windows-11-arm runner，os 名称仍为 windows-latest)
           - os: windows-latest
             target: x86_64-pc-windows-msvc
           - os: windows-latest
             target: aarch64-pc-windows-msvc
+            runner: windows-11-arm
 
     steps:
       - name: Checkout
@@ -55,7 +56,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross binutils-aarch64-linux-gnu
 
       - name: Set env for Linux aarch64 cross (glibc)
         if: matrix.os == 'ubuntu-latest' && matrix.target == 'aarch64-unknown-linux-gnu'
@@ -63,10 +64,16 @@ jobs:
           echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
           echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++" >> $GITHUB_ENV
           echo "AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar" >> $GITHUB_ENV
+          echo "RANLIB_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ranlib" >> $GITHUB_ENV
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
 
       - name: Install musl (Linux static, x86_64 only)
         if: matrix.os == 'ubuntu-latest' && matrix.target == 'x86_64-unknown-linux-musl'
         run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Set env for musl (x86_64)
+        if: matrix.os == 'ubuntu-latest' && matrix.target == 'x86_64-unknown-linux-musl'
+        run: echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc" >> $GITHUB_ENV
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }} --verbose
@@ -79,11 +86,19 @@ jobs:
           else
             exe="target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}"
           fi
-          if [ -f "$exe" ]; then
-            "$exe" --version
-          else
+          if [ ! -f "$exe" ]; then
             echo "Binary not found: $exe"
             exit 1
+          fi
+          # Only run binary on native target (cross-compiled binaries cannot run on host)
+          if [ "${{ matrix.os }}" = "ubuntu-latest" ] && [ "${{ matrix.target }}" = "x86_64-unknown-linux-gnu" ]; then
+            "$exe" --version
+          elif [ "${{ matrix.os }}" = "windows-latest" ] && { [ "${{ matrix.target }}" = "x86_64-pc-windows-msvc" ] || [ "${{ matrix.target }}" = "aarch64-pc-windows-msvc" ]; }; then
+            "$exe" --version
+          elif [ "${{ matrix.os }}" = "macos-14" ] && [ "${{ matrix.target }}" = "aarch64-apple-darwin" ]; then
+            "$exe" --version
+          else
+            echo "Skipping execution (cross-compiled target)."
           fi
 
       - name: Package
