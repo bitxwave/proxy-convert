@@ -24,9 +24,7 @@ pub struct Cli {
 pub enum Commands {
     /// Convert subscription configuration
     Convert {
-        /// Input sources in format: source-name@source-type@<path|url>
-        /// Single source: --source "clash1@clash@./clash.yaml"
-        /// Multiple sources: --source "clash1@clash@./clash.yaml" --source "sub1@sing-box@https://example.com/sub"
+        /// Input sources: <path|url>?type=clash&name=...&flag=... (type required in query)
         #[arg(long = "source", value_name = "SOURCE")]
         sources: Vec<String>,
 

@@ -18,9 +18,7 @@ impl SourceLoader {
         registry: &ProtocolRegistry,
         config: &AppConfig,
     ) -> Result<Source> {
-        let content =
-            Self::load_content_from_source(&source_meta.source, &source_meta.source_type, config)
-                .await?;
+        let content = Self::load_content_from_source(source_meta, config).await?;
 
         // Determine the format
         let detected_format = if let Some(fmt) = &source_meta.format {
@@ -41,44 +39,44 @@ impl SourceLoader {
 
     /// Load content from source (URL or local file)
     async fn load_content_from_source(
-        source: &str,
-        source_type: &SourceProtocol,
+        source_meta: &SourceMeta,
         config: &AppConfig,
     ) -> Result<String> {
+        let source = &source_meta.source;
         if source.starts_with("http://") || source.starts_with("https://") {
-            // Load from URL with appropriate flag parameter
-            let url_with_flag = Self::append_flag_to_url(source, source_type);
+            // Use source flag if set (empty = &flag=), else protocol default
+            let url_with_flag =
+                Self::append_flag_to_url(source, &source_meta.source_type, source_meta.flag.as_deref());
             Self::load_from_url(&url_with_flag, config).await
         } else {
-            // Load from local file
             Self::load_from_file(source)
         }
     }
 
-    /// Append or update flag query parameter to URL based on source type
-    /// - sing-box format: adds/updates &flag=sing-box
-    /// - clash format: adds/updates &flag=clash
-    /// - v2ray format: adds/updates &flag=v2ray
-    /// If flag parameter already exists with a different value, it will be updated.
-    fn append_flag_to_url(url: &str, source_type: &SourceProtocol) -> String {
-        let flag_value = match source_type {
-            SourceProtocol::Clash => "clash",
-            SourceProtocol::SingBox => "sing-box",
-            SourceProtocol::V2Ray => "v2ray",
+    /// Append or update flag query parameter to URL.
+    /// Use flag_override if set (empty string = &flag=), else source_type default.
+    fn append_flag_to_url(
+        url: &str,
+        source_type: &SourceProtocol,
+        flag_override: Option<&str>,
+    ) -> String {
+        let flag_value = match flag_override {
+            Some(s) => s.to_string(),
+            None => match source_type {
+                SourceProtocol::Clash => "clash".to_string(),
+                SourceProtocol::SingBox => "sing-box".to_string(),
+                SourceProtocol::V2Ray => "v2ray".to_string(),
+            },
         };
 
         // Check if flag parameter already exists and get its value
         if let Some(current_flag_value) = Self::get_flag_param_value(url) {
-            // Flag parameter exists, check if value matches
             if current_flag_value == flag_value {
-                // Value matches, return URL as-is
                 url.to_string()
             } else {
-                // Value doesn't match, update it
-                Self::update_flag_param(url, flag_value)
+                Self::update_flag_param(url, &flag_value)
             }
         } else {
-            // Flag parameter doesn't exist, add it
             if url.contains('?') {
                 format!("{}&flag={}", url, flag_value)
             } else {
@@ -234,13 +232,30 @@ impl SourceLoader {
         ))
     }
 
-    /// Parse Sing-box configuration (strongly typed)
-    fn parse_singbox_config(content: &str) -> Result<singbox::Config> {
-        // Try to parse as JSON first
+    /// Parse Sing-box configuration (strongly typed).
+    /// Normalize legacy DNS servers: when "address" exists but "type" is missing, set "type": "" so they deserialize as Server::Legacy.
+    pub(crate) fn parse_singbox_config(content: &str) -> Result<singbox::Config> {
         if let Ok(config) = serde_json::from_str::<singbox::Config>(content) {
             return Ok(config);
         }
-
+        // Normalize legacy DNS format (see sing-box docs: type empty = legacy, uses "address" only)
+        if let Ok(mut value) = serde_json::from_str::<serde_json::Value>(content) {
+            if let Some(dns) = value.get_mut("dns") {
+                if let Some(servers) = dns.get_mut("servers").and_then(|s| s.as_array_mut()) {
+                    for server in servers {
+                        if let Some(obj) = server.as_object_mut() {
+                            // Legacy format has "address" but no "type"; official docs: type empty = legacy
+                            if obj.contains_key("address") && !obj.contains_key("type") {
+                                obj.insert("type".to_string(), serde_json::Value::String(String::new()));
+                            }
+                        }
+                    }
+                }
+            }
+            if let Ok(config) = serde_json::from_value::<singbox::Config>(value) {
+                return Ok(config);
+            }
+        }
         Err(ConvertError::ConfigValidationError(
             "Failed to parse Sing-box configuration".to_string(),
         ))
@@ -256,5 +271,48 @@ impl SourceLoader {
         Err(ConvertError::ConfigValidationError(
             "Failed to parse V2Ray configuration".to_string(),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocols::singbox::dns::Server as DnsServer;
+
+    #[test]
+    fn test_parse_singbox_config_legacy_dns() {
+        // Minimal sing-box config with legacy DNS (address only, no type) like Eternal Network
+        let json = r#"{
+            "dns": {
+                "servers": [
+                    {"address": "1.1.1.1", "detour": "proxy", "tag": "remote"},
+                    {"address": "https://223.5.5.5/dns-query", "detour": "direct", "tag": "local"},
+                    {"address": "rcode://refused", "tag": "block"}
+                ],
+                "final": "remote"
+            },
+            "inbounds": [],
+            "outbounds": [{"type": "direct", "tag": "direct"}]
+        }"#;
+        let config = SourceLoader::parse_singbox_config(json).unwrap();
+        let dns = config.dns.as_ref().unwrap();
+        assert_eq!(dns.servers.len(), 3);
+
+        match &dns.servers[0] {
+            DnsServer::Legacy(l) => {
+                assert_eq!(l.address, "1.1.1.1");
+                assert_eq!(l.tag.as_deref(), Some("remote"));
+                assert_eq!(l.detour.as_deref(), Some("proxy"));
+            }
+            _ => panic!("first server should be Legacy"),
+        }
+        match &dns.servers[1] {
+            DnsServer::Legacy(l) => assert_eq!(l.address, "https://223.5.5.5/dns-query"),
+            _ => panic!("second server should be Legacy"),
+        }
+        match &dns.servers[2] {
+            DnsServer::Legacy(l) => assert_eq!(l.address, "rcode://refused"),
+            _ => panic!("third server should be Legacy"),
+        }
     }
 }

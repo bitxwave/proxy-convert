@@ -11,7 +11,7 @@ pub async fn handle_validate(
     _config: &AppConfig,
     _registry: &ProtocolRegistry,
 ) -> Result<()> {
-    // 提取 Validate 命令的参数
+    // Extract Validate command args
     let (file, protocol) = match validate_cmd {
         crate::commands::cli::Commands::Validate { file, protocol } => (file, protocol),
         _ => {
@@ -21,7 +21,7 @@ pub async fn handle_validate(
         }
     };
 
-    // 验证协议
+    // Resolve protocol
     let protocol_lower = protocol.to_lowercase();
     let protocol_name = match protocol_lower.as_str() {
         "singbox" | "sing-box" => singbox::PROTOCOL_NAME,
@@ -39,15 +39,15 @@ pub async fn handle_validate(
     info!("Validating configuration file: {}", file_path);
     info!("Protocol: {}", protocol_name);
 
-    // 检查文件是否存在
+    // Check file exists
     if !file.exists() {
         return Err(ConvertError::file_not_found(&file_path));
     }
 
-    // 读取配置文件
+    // Read config file
     let content = std::fs::read_to_string(&*file_path).map_err(|e| ConvertError::IoError(e))?;
 
-    // 根据协议验证配置
+    // Validate by protocol
     match protocol_name {
         singbox::PROTOCOL_NAME => validate_singbox_config(&content)?,
         clash::PROTOCOL_NAME => validate_clash_config(&content)?,

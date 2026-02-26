@@ -118,9 +118,8 @@ impl ProtocolRegistry {
     pub fn auto_detect_format(&self, content: &str) -> Result<Option<(String, String)>> {
         let content = content.trim();
 
-        // 尝试解析为 JSON
+        // Try parse as JSON
         if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(content) {
-            // 检查是否是 Clash 格式
             if Self::is_clash_format(&json_value) {
                 return Ok(Some((
                     "clash".to_string(),
@@ -128,7 +127,6 @@ impl ProtocolRegistry {
                 )));
             }
 
-            // 检查是否是 Sing-box 格式
             if Self::is_singbox_format(&json_value) {
                 return Ok(Some((
                     "singbox".to_string(),
@@ -136,7 +134,6 @@ impl ProtocolRegistry {
                 )));
             }
 
-            // 检查是否是 V2Ray 格式
             if Self::is_v2ray_format(&json_value) {
                 return Ok(Some((
                     "v2ray".to_string(),
@@ -145,9 +142,8 @@ impl ProtocolRegistry {
             }
         }
 
-        // 尝试解析为 YAML
+        // Try parse as YAML
         if let Ok(yaml_value) = serde_yaml::from_str::<serde_json::Value>(content) {
-            // 检查是否是 Clash 格式
             if Self::is_clash_format(&yaml_value) {
                 return Ok(Some((
                     "clash".to_string(),
@@ -155,7 +151,6 @@ impl ProtocolRegistry {
                 )));
             }
 
-            // 检查是否是 Sing-box 格式
             if Self::is_singbox_format(&yaml_value) {
                 return Ok(Some((
                     "singbox".to_string(),
@@ -163,7 +158,6 @@ impl ProtocolRegistry {
                 )));
             }
 
-            // 检查是否是 V2Ray 格式
             if Self::is_v2ray_format(&yaml_value) {
                 return Ok(Some((
                     "v2ray".to_string(),
@@ -172,7 +166,7 @@ impl ProtocolRegistry {
             }
         }
 
-        // 检查是否是订阅链接格式（base64 编码的配置）
+        // Subscription format (base64)
         if Self::is_subscription_format(content) {
             return Ok(Some((
                 "subscription".to_string(),
@@ -180,7 +174,7 @@ impl ProtocolRegistry {
             )));
         }
 
-        // 检查是否是纯文本格式（每行一个代理服务器）
+        // Plain text (one proxy per line)
         if Self::is_plain_text_format(content) {
             return Ok(Some(("plain".to_string(), "Plain text format".to_string())));
         }
@@ -190,13 +184,7 @@ impl ProtocolRegistry {
 
     /// Check if JSON value is Clash format
     fn is_clash_format(json: &serde_json::Value) -> bool {
-        // Clash 格式特征：
-        // 1. 有 "port" 字段
-        // 2. 有 "socks-port" 字段
-        // 3. 有 "proxies" 数组
-        // 4. 有 "proxy-groups" 数组
-        // 5. 有 "mixed-port" 字段（Clash 特有）
-        // 6. 有 "external-controller" 字段（Clash 特有）
+        // Clash: port, socks-port, proxies, proxy-groups, mixed-port, external-controller
         json.get("port").is_some()
             || json.get("socks-port").is_some()
             || json.get("mixed-port").is_some()
@@ -207,57 +195,35 @@ impl ProtocolRegistry {
 
     /// Check if JSON value is Sing-box format
     fn is_singbox_format(json: &serde_json::Value) -> bool {
-        // Sing-box 格式特征：
-        // 1. 有 "log" 字段
-        // 2. 有 "inbounds" 数组
-        // 3. 有 "outbounds" 数组
-        // 4. 有 "route" 字段
-        // 5. 有 "experimental" 字段（Sing-box 特有）
-        // 6. 有 "dns" 字段（Sing-box 特有）
+        // Sing-box: log, inbounds, outbounds, route, experimental, dns (V2Ray has routing)
         let has_singbox_fields = json.get("experimental").is_some()
             || json.get("dns").is_some()
             || json.get("route").is_some();
 
-        // 检查是否有 Sing-box 特有的字段，或者同时有 log、inbounds、outbounds 但没有 routing
         has_singbox_fields
-            || (
-                json.get("log").is_some()
-                    && json.get("inbounds").is_some()
-                    && json.get("outbounds").is_some()
-                    && json.get("routing").is_none()
-                // V2Ray 有 routing，Sing-box 有 route
-            )
+            || (json.get("log").is_some()
+                && json.get("inbounds").is_some()
+                && json.get("outbounds").is_some()
+                && json.get("routing").is_none())
     }
 
     /// Check if JSON value is V2Ray format
     fn is_v2ray_format(json: &serde_json::Value) -> bool {
-        // V2Ray 格式特征：
-        // 1. 有 "log" 字段
-        // 2. 有 "inbounds" 数组
-        // 3. 有 "outbounds" 数组
-        // 4. 有 "routing" 字段（V2Ray 特有）
-        // 5. 有 "api" 字段（V2Ray 特有）
-        // 6. 有 "stats" 字段（V2Ray 特有）
+        // V2Ray: log, inbounds, outbounds, routing, api, stats
         let has_v2ray_fields = json.get("routing").is_some()
             || json.get("api").is_some()
             || json.get("stats").is_some();
 
-        // 检查是否有 V2Ray 特有的字段，或者同时有 log、inbounds、outbounds 和 routing
         has_v2ray_fields
-            || (
-                json.get("log").is_some()
-                    && json.get("inbounds").is_some()
-                    && json.get("outbounds").is_some()
-                    && json.get("routing").is_some()
-                // V2Ray 有 routing
-            )
+            || (json.get("log").is_some()
+                && json.get("inbounds").is_some()
+                && json.get("outbounds").is_some()
+                && json.get("routing").is_some())
     }
 
     /// Check if content is subscription format
     fn is_subscription_format(content: &str) -> bool {
-        // 订阅格式特征：
-        // 1. 以 vmess://, trojan://, ss:// 等协议开头
-        // 2. 或者是 base64 编码的字符串
+        // vmess://, trojan://, ss://, etc. or base64
         content.starts_with("vmess://")
             || content.starts_with("trojan://")
             || content.starts_with("ss://")
@@ -269,15 +235,12 @@ impl ProtocolRegistry {
 
     /// Check if content is plain text format
     fn is_plain_text_format(content: &str) -> bool {
-        // 纯文本格式特征：
-        // 1. 每行一个代理服务器配置
-        // 2. 包含协议标识符
+        // One proxy per line with protocol prefix
         let lines: Vec<&str> = content.lines().collect();
         if lines.len() < 2 {
             return false;
         }
 
-        // 检查前几行是否包含协议标识符
         lines.iter().take(3).any(|line| {
             let line = line.trim();
             !line.is_empty()
@@ -293,10 +256,7 @@ impl ProtocolRegistry {
 
     /// Check if string is base64 encoded
     fn is_base64_encoded(s: &str) -> bool {
-        // 简单的 base64 检测：
-        // 1. 移除空白字符后检查
-        // 2. 长度是 4 的倍数
-        // 3. 只包含 base64 字符
+        // Trim, length multiple of 4, base64 charset only
         let trimmed: String = s.chars().filter(|c| !c.is_whitespace()).collect();
         if trimmed.is_empty() || trimmed.len() % 4 != 0 {
             return false;

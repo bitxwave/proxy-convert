@@ -12,15 +12,14 @@ mod tests {
 
     #[test]
     fn test_handle_version() {
-        // 测试版本命令不会panic
-        // 由于handle_version只是打印信息，我们主要测试它不会崩溃
+        // Ensure handle_version does not panic
         handle_version();
-        assert!(true); // 如果能执行到这里，说明没有panic
+        assert!(true);
     }
 
     #[test]
     fn test_version_output_format() {
-        // 测试版本信息格式
+        // Version string format
         let version = env!("CARGO_PKG_VERSION");
         assert!(!version.is_empty());
         assert!(version.chars().any(|c| c.is_ascii_digit()));

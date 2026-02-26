@@ -6,7 +6,7 @@ A modern, extensible proxy configuration conversion tool supporting conversion a
 
 - **Multi-protocol support**: Supports Clash, Sing-box, V2Ray and other proxy configuration formats
 - **Multi-source integration**: Supports integration of multiple input sources with unified interpolation rules ✨
-- **Unified input rules**: Single source and multiple sources use the same `--source` parameter format ✨
+- **URL-style source**: Source uses standard URL form `<path|url>?type=...&name=...&flag=...` for easy extension ✨
 - **Powerful interpolation system**: Advanced template interpolation rules for complex node selection and filtering ✨
 - **Plugin architecture**: Easy to extend new protocol support
 - **Modern CLI**: User-friendly command line interface based on clap 4.x
@@ -37,16 +37,12 @@ cargo install --git https://github.com/your-username/proxy-convert.git
 ### Basic Usage
 
 ```bash
-# Single source
-proxy-convert convert \
-  --source "clash1@clash@./clash.yaml"
+# Recommended: URL-style (path/url + query params)
+proxy-convert convert --source "./clash.yaml?type=clash"
+proxy-convert convert --source "https://example.com/sub?type=clash&name=my&flag=clash" -o config.json
 
-# Multiple sources
-proxy-convert convert \
-  --source "clash1@clash@./clash.yaml" \
-  --source "singbox1@sing-box@./singbox.json" \
-  --template template.json \
-  --output config.json
+# Legacy: name@type@source or type@source
+proxy-convert convert --source "clash1@clash@./clash.yaml" --source "singbox1@sing-box@./singbox.json" -o config.json
 
 # Validate config file
 proxy-convert validate config.json
@@ -66,26 +62,23 @@ proxy-convert version
 
 This ensures consistent user experience regardless of whether you use a single input source or multiple input sources.
 
-### Source Format
+### Source Format (standard URL-style)
 
-```conf
-name@type@source
+```text
+<path|url>?type=clash&name=...&flag=...
 ```
 
-- `name`: Source name, used for template reference
-- `type`: Subscription type (clash/sing-box/v2ray/auto)
-- `source`: File path or URL
+- Path or URL + `?` and query params (standard URL): `type` (required), `name` (optional), `flag` (optional).
+- Examples: `./config.yaml?type=clash`, `https://example.com/sub?type=clash&name=my&flag=clash`
+- Config file `sources` use the same format (list of such strings).
 
 ### Examples
 
 ```bash
-# File sources
---source "clash1@clash@./clash.yaml"
---source "singbox1@sing-box@./singbox.json"
-
-# URL sources
---source "sub1@clash@https://example.com/sub"
---source "v2ray1@v2ray@https://example.com/v2ray.txt"
+--source "./clash.yaml?type=clash"
+--source "https://example.com/sub?type=clash&name=my&flag=clash"
+--source "examples/sources/Eternal Network?type=singbox"
+# With config: --config examples/config.yaml -o config.json
 ```
 
 ## 📋 Interpolation Rules System
@@ -224,10 +217,7 @@ proxy-convert convert [OPTIONS] --source <SOURCE> [--source <SOURCE>...]
 
 **Arguments:**
 
-- `--source <SOURCE>`: Input source in format `name@type@source`
-  - `name`: Source name, used for template reference
-  - `type`: Subscription type (clash/sing-box/v2ray/auto)
-  - `source`: File path or URL
+- `--source <SOURCE>`: Input source: `<path|url>?type=...&name=...&flag=...` (type required in query)
 
 **Options:**
 
@@ -291,6 +281,10 @@ output_format: json
 default_input_format: clash
 default_output_format: singbox
 template_dir: ~/.config/proxy-convert/templates
+# sources: same format as --source, e.g. ["path?type=clash&name=my"]
+# sources:
+#   - "./clash.yaml?type=clash&name=clash1"
+#   - "https://example.com/sub?type=singbox&name=sub1"
 ```
 
 ### Environment Variables
@@ -341,7 +335,7 @@ The project supports multi-source integration with unified interpolation rules:
 
 #### 1. Input Source Management
 
-- **Unified format**: All sources use `name@type@source` format
+- **Source format**: `<path|url>?type=...&name=...&flag=...` (same for CLI and config)
 - **Type detection**: Automatic detection of clash, sing-box, v2ray formats
 - **Source naming**: Each source has a unique name for template reference
 

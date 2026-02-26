@@ -1,3 +1,3 @@
-//! 核心模块 - 定义转换器的核心类型和特征
+//! Core module - converter types and traits
 pub mod config;
 pub mod logging;

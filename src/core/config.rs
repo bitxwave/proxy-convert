@@ -1,4 +1,4 @@
-//! 配置管理模块 - 处理应用程序配置的加载和管理
+//! Config management - load and merge application configuration.
 
 use crate::utils::error::{ConvertError, Result};
 use serde::{Deserialize, Serialize};
@@ -6,58 +6,46 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
-    // ========== HTTP 请求配置 ==========
-    /// HTTP 请求 User-Agent
+    // ========== HTTP ==========
+    /// HTTP User-Agent
     #[serde(default = "default_user_agent")]
     pub user_agent: String,
 
-    /// HTTP 请求超时（秒）
+    /// HTTP timeout in seconds
     #[serde(default = "default_timeout")]
     pub timeout_seconds: u64,
 
-    /// 失败重试次数
+    /// Retry count on failure
     #[serde(default = "default_retry_count")]
     pub retry_count: u32,
 
-    // ========== 日志配置 ==========
-    /// 日志级别: error, warn, info, debug, trace
+    // ========== Logging ==========
+    /// Log level: error, warn, info, debug, trace
     #[serde(default = "default_log_level")]
     pub log_level: String,
 
-    /// 是否显示详细信息
+    /// Verbose output
     #[serde(default)]
     pub verbose: bool,
 
-    // ========== 输出配置 ==========
-    /// 输出协议: singbox, clash, v2ray（目前仅支持 singbox）
+    // ========== Output ==========
+    /// Output protocol: singbox, clash, v2ray
     #[serde(default = "default_output_protocol")]
     pub output_protocol: String,
 
-    /// 输出文件路径
+    /// Output file path
     #[serde(default)]
     pub output: Option<String>,
 
-    // ========== 模板配置 ==========
-    /// 模板文件路径
+    // ========== Template ==========
+    /// Template file path
     #[serde(default)]
     pub template: Option<String>,
 
-    // ========== 订阅源配置 ==========
-    /// 订阅源列表
+    // ========== Sources ==========
+    /// Source list; each item is URL form: <path|url>?type=clash&name=...&flag=... (same as --source)
     #[serde(default)]
-    pub sources: Option<Vec<SourceConfig>>,
-}
-
-/// 订阅源配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SourceConfig {
-    /// 源名称（用于标识和区分多个源）
-    pub name: String,
-    /// 源类型: clash, singbox, v2ray（必填）
-    #[serde(rename = "type")]
-    pub source_type: String,
-    /// 源路径或 URL
-    pub url: String,
+    pub sources: Option<Vec<String>>,
 }
 
 fn default_user_agent() -> String {
@@ -120,11 +108,11 @@ impl AppConfig {
     fn get_config_paths() -> Vec<PathBuf> {
         let mut paths = Vec::new();
 
-        // 当前目录
+        // Current directory
         paths.push(PathBuf::from("config.yaml"));
         paths.push(PathBuf::from("config.yml"));
 
-        // 用户配置目录
+        // User config directory
         if let Some(config_dir) = dirs::config_dir() {
             let app_config_dir = config_dir.join("proxy-convert");
             paths.push(app_config_dir.join("config.yaml"));
@@ -146,7 +134,7 @@ impl AppConfig {
             ..
         } = cli
         {
-            // 合并超时参数
+            // Merge timeout
             if let Some(timeout_val) = timeout {
                 self.timeout_seconds = *timeout_val;
                 tracing::debug!(
@@ -155,7 +143,7 @@ impl AppConfig {
                 );
             }
 
-            // 合并输出协议参数
+            // Merge output protocol
             if let Some(protocol) = output_protocol {
                 self.output_protocol = protocol.clone();
                 tracing::debug!(
@@ -164,16 +152,16 @@ impl AppConfig {
                 );
             }
 
-            // 合并详细信息参数
+            // Merge verbose
             if *verbose {
                 self.verbose = true;
                 tracing::debug!("CLI verbose parameter overrides config: true");
             }
 
-            // 合并日志级别参数
+            // Merge log level
             let cli_log_level = format!("{:?}", log_level).to_lowercase();
             if cli_log_level != "info" {
-                // 只有当 CLI 指定了非默认值时才覆盖
+                // Override only when CLI specifies non-default
                 self.log_level = cli_log_level.clone();
                 tracing::debug!(
                     "CLI log_level parameter overrides config: {}",
@@ -181,13 +169,13 @@ impl AppConfig {
                 );
             }
 
-            // 合并模板参数
+            // Merge template
             if let Some(tpl) = template {
                 self.template = Some(tpl.to_string_lossy().to_string());
                 tracing::debug!("CLI template parameter overrides config: {:?}", tpl);
             }
 
-            // 合并输出路径参数（仅当 CLI 指定时）
+            // Merge output path (only when CLI specifies)
             if let Some(out) = output {
                 let output_str = out.to_string_lossy().to_string();
                 self.output = Some(output_str.clone());
@@ -247,16 +235,10 @@ mod tests {
     }
 
     #[test]
-    fn test_source_config_creation() {
-        let source = SourceConfig {
-            name: "test-source".to_string(),
-            source_type: "clash".to_string(),
-            url: "https://example.com/config.yaml".to_string(),
-        };
-
-        assert_eq!(source.name, "test-source");
-        assert_eq!(source.source_type, "clash");
-        assert_eq!(source.url, "https://example.com/config.yaml");
+    fn test_source_string_format() {
+        let source = "https://example.com/config.yaml?type=clash&name=test-source";
+        assert!(source.contains('?'));
+        assert!(source.contains("type=clash"));
     }
 
     #[test]
@@ -274,23 +256,15 @@ mod tests {
     fn test_config_with_sources() {
         let mut config = AppConfig::default();
         config.sources = Some(vec![
-            SourceConfig {
-                name: "source1".to_string(),
-                source_type: "clash".to_string(),
-                url: "https://example.com/clash.yaml".to_string(),
-            },
-            SourceConfig {
-                name: "source2".to_string(),
-                source_type: "singbox".to_string(),
-                url: "https://example.com/singbox.json".to_string(),
-            },
+            "https://example.com/clash.yaml?type=clash&name=source1".to_string(),
+            "https://example.com/singbox.json?type=singbox&name=source2".to_string(),
         ]);
 
         assert!(config.sources.is_some());
-        let sources = config.sources.unwrap();
+        let sources = config.sources.as_ref().unwrap();
         assert_eq!(sources.len(), 2);
-        assert_eq!(sources[0].name, "source1");
-        assert_eq!(sources[1].name, "source2");
+        assert!(sources[0].contains("name=source1"));
+        assert!(sources[1].contains("name=source2"));
     }
 
     #[test]
@@ -315,11 +289,7 @@ mod tests {
             output_protocol: "singbox".to_string(),
             output: Some("output.json".to_string()),
             template: Some("./template.json".to_string()),
-            sources: Some(vec![SourceConfig {
-                name: "custom-source".to_string(),
-                source_type: "v2ray".to_string(),
-                url: "https://custom.com/config.json".to_string(),
-            }]),
+            sources: Some(vec!["https://custom.com/config.json?type=v2ray&name=custom-source".to_string()]),
         };
 
         assert_eq!(config.user_agent, "Custom Agent");
@@ -344,16 +314,9 @@ mod tests {
     }
 
     #[test]
-    fn test_source_config_clone() {
-        let source1 = SourceConfig {
-            name: "test".to_string(),
-            source_type: "clash".to_string(),
-            url: "https://example.com".to_string(),
-        };
-        let source2 = source1.clone();
-
-        assert_eq!(source1.name, source2.name);
-        assert_eq!(source1.source_type, source2.source_type);
-        assert_eq!(source1.url, source2.url);
+    fn test_sources_list_clone() {
+        let sources = Some(vec!["https://example.com?type=clash".to_string()]);
+        let c = sources.clone();
+        assert_eq!(sources.as_ref().unwrap()[0], c.as_ref().unwrap()[0]);
     }
 }

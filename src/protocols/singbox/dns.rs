@@ -21,9 +21,26 @@ pub struct DNS {
     pub client_subnet: Option<String>,
 }
 
+/// Legacy DNS server format (deprecated in sing-box 1.12, removed in 1.14).
+/// Uses `address` URL instead of `type` + `server`; see https://sing-box.sagernet.org/configuration/dns/server/legacy/
+#[skip_serializing_none]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct LegacyServer {
+    pub tag: Option<String>,
+    pub address: String,
+    pub address_resolver: Option<String>,
+    pub address_strategy: Option<String>,
+    pub strategy: Option<String>,
+    pub detour: Option<String>,
+    pub client_subnet: Option<String>,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum Server {
+    /// Empty or missing type => legacy format (address-based)
+    #[serde(rename = "")]
+    Legacy(LegacyServer),
     Local(LocalServer),
     Hosts(HostsServer),
     Tcp(TcpServer),
@@ -244,5 +261,51 @@ pub enum RuleAction {
     RouteOptions,
     Reject,
     Predefined,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_legacy_server_deserialize() {
+        // Eternal Network style: type empty, address + tag + detour
+        let json = r#"{"type":"","tag":"remote","address":"1.1.1.1","detour":"proxy"}"#;
+        let server: Server = serde_json::from_str(json).unwrap();
+        match &server {
+            Server::Legacy(l) => {
+                assert_eq!(l.tag.as_deref(), Some("remote"));
+                assert_eq!(l.address, "1.1.1.1");
+                assert_eq!(l.detour.as_deref(), Some("proxy"));
+            }
+            _ => panic!("expected Legacy variant"),
+        }
+    }
+
+    #[test]
+    fn test_legacy_server_https_address() {
+        let json = r#"{"type":"","address":"https://223.5.5.5/dns-query","tag":"local","detour":"direct"}"#;
+        let server: Server = serde_json::from_str(json).unwrap();
+        match &server {
+            Server::Legacy(l) => {
+                assert_eq!(l.address, "https://223.5.5.5/dns-query");
+                assert_eq!(l.tag.as_deref(), Some("local"));
+            }
+            _ => panic!("expected Legacy variant"),
+        }
+    }
+
+    #[test]
+    fn test_legacy_server_rcode() {
+        let json = r#"{"type":"","address":"rcode://refused","tag":"block"}"#;
+        let server: Server = serde_json::from_str(json).unwrap();
+        match &server {
+            Server::Legacy(l) => {
+                assert_eq!(l.address, "rcode://refused");
+                assert_eq!(l.tag.as_deref(), Some("block"));
+            }
+            _ => panic!("expected Legacy variant"),
+        }
+    }
 }
 

@@ -58,7 +58,7 @@ cargo install --git https://github.com/your-username/proxy-convert.git
   ```
 
   **选项：**
-  - `--source <SOURCE>`：输入来源，格式：`name@type@source`
+  - `--source <SOURCE>`：输入来源，见下方「来源格式说明」
   - `-t, --template <TEMPLATE>`：模板文件路径
   - `-o, --output <OUTPUT>`：输出文件路径（默认：config.json）
   - `-f, --format <FORMAT>`：输出格式（json/pretty/yaml，默认：pretty）
@@ -66,20 +66,18 @@ cargo install --git https://github.com/your-username/proxy-convert.git
   - `-l, --log-level <LOG_LEVEL>`：日志级别（默认：info）
   - `-v, --verbose`：显示详细信息
 
-  - 来源格式说明
+  - **来源格式说明**（标准 URL 规范，命令行与配置文件一致）
 
-    ```bash
-    name@type@source
+    ```text
+    <path|url>?type=clash&name=...&flag=...
     ```
 
-    - `name`：来源名称，用于模板引用（可选，见下方说明）
-    - `type`：订阅类型（clash/sing-box/v2ray/auto）
-    - `source`：文件路径或URL
-
-    **重要说明：**
-    - 如果只有一个来源，可以省略 `name`，直接使用 `type@source` 格式
-    - 当省略 `name` 时，生成的节点标签不会添加来源前缀
-    - 多个来源时必须指定 `name` 以区分不同来源
+    - path 或 url 后加 `?` 与查询参数（与标准 URL 一致）：
+      - `type`：**必填**，订阅类型（clash / sing-box / v2ray）
+      - `name`：可选，来源名称，用于模板引用
+      - `flag`：可选，请求 URL 时的 flag 参数（空表示 `&flag=`）
+    - 示例：`./config.yaml?type=clash`、`https://example.com/sub?type=clash&name=my&flag=clash`、`examples/sources/Eternal Network?type=singbox`
+    - 配置文件 `sources` 也使用相同格式的字符串列表（见下方配置示例）。
 
 - **验证配置文件**：验证配置文件的格式和内容正确性
 
@@ -102,25 +100,22 @@ cargo install --git https://github.com/your-username/proxy-convert.git
 #### 使用示例
 
 ```bash
-# 单个来源（省略 name）
-proxy-convert convert \
-  --source "clash@./clash.yaml"
+# 单源
+proxy-convert convert --source "./clash.yaml?type=clash"
 
-# 单个来源（指定 name）
+# 多源（可带 name、flag）
 proxy-convert convert \
-  --source "clash1@clash@./clash.yaml"
+  --source "https://example.com/sub?type=clash&name=my&flag=clash" \
+  --source "examples/sources/Eternal Network?type=singbox" \
+  -o config.json
 
-# 多个来源（必须指定 name）
-proxy-convert convert \
-  --source "clash1@clash@./clash.yaml" \
-  --source "singbox1@sing-box@./singbox.json" \
-  --template template.json \
-  --output config.json
+# 使用配置文件（sources 格式与 --source 一致）
+proxy-convert convert --config examples/config.yaml -o config.json
 
 # 其他命令
-proxy-convert validate config.json          # 验证配置文件
-proxy-convert template singbox --output template.json  # 生成模板
-proxy-convert version                      # 显示版本信息
+proxy-convert validate config.json
+proxy-convert template singbox --output template.json
+proxy-convert version
 ```
 
 ## 📋 插值规则系统 ✨
@@ -242,7 +237,7 @@ proxy-convert version                      # 显示版本信息
 **单个来源的情况：**
 
 - 如果只有一个来源且没有指定 `name`，节点标签保持原样
-- 例如：`--source "clash@./clash.yaml"` 时，节点标签不会添加前缀
+- 例如：单源且未指定 `name`（如 `--source "./clash.yaml?type=clash"`）时，节点标签不会添加前缀
 
 **标签前缀的作用：**
 
@@ -322,14 +317,10 @@ output: config.json
 # 模板目录
 template_dir: ~/.config/proxy-convert/templates
 
-# 来源配置（可选，也可以通过命令行参数指定）
-source:
-  - name: clash1
-    type: clash
-    path_or_url: ./clash.yaml
-  - name: singbox1
-    type: sing-box
-    path_or_url: ./singbox.json
+# 来源配置（可选，与 --source 格式一致：<path|url>?type=...&name=...&flag=...）
+sources:
+  - "./clash.yaml?type=clash&name=clash1"
+  - "./singbox.json?type=singbox&name=singbox1"
 ```
 
 **配置项说明：**
@@ -344,7 +335,7 @@ source:
 - `output_format`：输出格式（json/pretty/yaml）
 - `output`：默认输出文件路径
 - `template_dir`：模板文件目录
-- `source`：预定义的来源列表
+- `sources`：预定义的来源列表（每项为 URL 格式字符串，与命令行 `--source` 一致）
 
 ### 环境变量
 
@@ -423,7 +414,7 @@ src/
 
 #### 1. 输入源管理
 
-- **统一格式**：所有来源使用 `name@type@source` 格式
+- **来源格式**：统一使用 URL 形式 `<path|url>?type=...&name=...&flag=...`（命令行与配置文件一致）
 - **类型检测**：自动检测 clash、sing-box、v2ray 格式
 - **来源命名**：每个来源都有唯一名称用于模板引用
 
