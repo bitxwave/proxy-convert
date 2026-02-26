@@ -49,7 +49,9 @@ impl SourceLoader {
                 Self::append_flag_to_url(source, &source_meta.source_type, source_meta.flag.as_deref());
             Self::load_from_url(&url_with_flag, config).await
         } else {
-            Self::load_from_file(source)
+            // File path: use only the part before ? (query params are kept in source string for reference)
+            let path = source.find('?').map(|i| &source[..i]).unwrap_or(source.as_str());
+            Self::load_from_file(path)
         }
     }
 

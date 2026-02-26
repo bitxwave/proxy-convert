@@ -1,9 +1,11 @@
-name: Rust Build, Test and Release
+# Verify all release targets build (no packaging). Run on push to main and on pull_request.
+name: Build (all targets)
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
 
 env:
   BINARY_NAME: proxy-convert
@@ -17,27 +19,23 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux glibc + musl static
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
-          # macOS
           - os: macos-14
             target: x86_64-apple-darwin
           - os: macos-14
             target: aarch64-apple-darwin
-          # Windows
           - os: windows-latest
             target: x86_64-pc-windows-msvc
           - os: windows-latest
             target: aarch64-pc-windows-msvc
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -48,7 +46,6 @@ jobs:
         uses: Swatinem/rust-cache@2
         with:
           key: ${{ matrix.target }}
-          shared-key: release
 
       - name: Install Linux deps (glibc cross)
         if: matrix.os == 'ubuntu-latest' && matrix.target == 'aarch64-unknown-linux-gnu'
@@ -56,14 +53,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross
 
-      - name: Set env for Linux aarch64 cross (glibc)
+      - name: Set env for Linux aarch64 cross
         if: matrix.os == 'ubuntu-latest' && matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
           echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
           echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++" >> $GITHUB_ENV
           echo "AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar" >> $GITHUB_ENV
 
-      - name: Install musl (Linux static, x86_64 only)
+      - name: Install musl (x86_64)
         if: matrix.os == 'ubuntu-latest' && matrix.target == 'x86_64-unknown-linux-musl'
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
@@ -84,53 +81,3 @@ jobs:
             echo "Binary not found: $exe"
             exit 1
           fi
-
-      - name: Package
-        shell: bash
-        run: |
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            exe="target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}.exe"
-            out="${{ env.BINARY_NAME }}-${{ matrix.target }}.zip"
-            mkdir -p release
-            cp "$exe" release/
-            (cd release && 7z a "$out" "${{ env.BINARY_NAME }}.exe")
-          else
-            exe="target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}"
-            out="${{ env.BINARY_NAME }}-${{ matrix.target }}.tar.gz"
-            mkdir -p release
-            cp "$exe" release/
-            (cd release && tar czvf "$out" "${{ env.BINARY_NAME }}")
-          fi
-          echo "PACKAGE_PATH=release/$out" >> $GITHUB_ENV
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.target }}
-          path: ${{ env.PACKAGE_PATH }}
-
-  release:
-    name: Create Release
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: Release ${{ github.ref_name }}
-          draft: false
-          prerelease: false
-          files: |
-            artifacts/*/*.tar.gz
-            artifacts/*/*.zip

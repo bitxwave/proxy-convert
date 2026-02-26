@@ -183,7 +183,7 @@ impl ConvertCommand {
                 raw
             ))
         })?;
-        let (base, query_str) = raw.split_at(pos);
+        let (_base, query_str) = raw.split_at(pos);
         let query_str = query_str.trim_start_matches('?');
         let mut name: Option<String> = None;
         let mut type_param: Option<String> = None;
@@ -207,15 +207,11 @@ impl ConvertCommand {
                 source_type_str
             ))
         })?;
-        let source = if base.starts_with("http://") || base.starts_with("https://") {
-            raw.to_string()
-        } else {
-            base.to_string()
-        };
+        // Keep full string (path|url + all query params); type/name/flag are parsed out but remain in source
         Ok(SourceMeta {
             name: name.filter(|s| !s.is_empty()),
             source_type,
-            source,
+            source: raw.to_string(),
             format: None,
             flag,
         })
@@ -319,19 +315,23 @@ pub async fn handle_convert(
         .or_else(|| config.template.clone());
 
     tracing::info!("Starting conversion");
-    tracing::info!(
-        "Input sources: {}",
-        final_sources
-            .iter()
-            .map(|m| format!(
-                "{}@{:?}@{}",
-                m.name.as_deref().unwrap_or(""),
-                m.source_type,
-                m.source
-            ))
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
+    for (i, m) in final_sources.iter().enumerate() {
+        let type_str = match &m.source_type {
+            SourceProtocol::Clash => "clash",
+            SourceProtocol::SingBox => "singbox",
+            SourceProtocol::V2Ray => "v2ray",
+        };
+        let name_str = m.name.as_deref().unwrap_or("(none)");
+        let flag_str = m.flag.as_deref().unwrap_or("(default)");
+        tracing::info!(
+            "Input source [{}]: {}  type={} name={} flag={}",
+            i + 1,
+            m.source,
+            type_str,
+            name_str,
+            flag_str
+        );
+    }
     tracing::info!(
         "Template: {}",
         final_template.as_deref().unwrap_or("(default)")
@@ -372,11 +372,11 @@ mod tests {
 
     #[test]
     fn test_parse_source_string_url_format() {
-        // Path + type only
+        // Path + type only; source keeps full string (all params)
         let m = ConvertCommand::parse_source_string("./config.yaml?type=clash").unwrap();
         assert_eq!(m.name, None);
         assert!(matches!(m.source_type, SourceProtocol::Clash));
-        assert_eq!(m.source, "./config.yaml");
+        assert_eq!(m.source, "./config.yaml?type=clash");
         assert_eq!(m.flag, None);
 
         // URL + type, name, flag
@@ -392,16 +392,17 @@ mod tests {
         );
         assert_eq!(m.flag.as_deref(), Some("sing-box"));
 
-        // File path with space (Eternal Network style)
+        // File path with space (Eternal Network style); source keeps full string
         let m = ConvertCommand::parse_source_string("examples/sources/Eternal Network?type=singbox")
             .unwrap();
         assert_eq!(m.name, None);
         assert!(matches!(m.source_type, SourceProtocol::SingBox));
-        assert_eq!(m.source, "examples/sources/Eternal Network");
+        assert_eq!(m.source, "examples/sources/Eternal Network?type=singbox");
 
-        // Empty name filtered out
+        // Empty name filtered out; source keeps full string including other params
         let m = ConvertCommand::parse_source_string("./x?type=clash&name=").unwrap();
         assert_eq!(m.name, None);
+        assert_eq!(m.source, "./x?type=clash&name=");
     }
 
     #[test]
