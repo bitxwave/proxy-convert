@@ -3,15 +3,10 @@
 //! A modern, extensible tool for converting between different proxy configuration formats.
 //! Supports Clash, Sing-box, V2Ray and other formats.
 
-mod commands;
-mod core;
-mod protocols;
-mod utils;
-
-use crate::commands::cli::{Cli, Commands};
-use crate::commands::{convert, template, validate, version};
-use crate::core::{config::AppConfig, logging};
-use crate::utils::error;
+use proxy_convert::commands::cli::{Cli, Commands};
+use proxy_convert::commands::{convert, template, validate, version};
+use proxy_convert::core::error;
+use proxy_convert::core::{config::AppConfig, logging};
 use clap::Parser;
 use tracing::Level;
 
@@ -52,7 +47,7 @@ async fn run() -> error::Result<()> {
             logging::init_logging(log_level)?;
 
             // Initialize protocol registry
-            let registry = crate::protocols::ProtocolRegistry::init();
+            let registry = proxy_convert::protocols::ProtocolRegistry::init();
 
             // Handle other commands
             match cli.command {

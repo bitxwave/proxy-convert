@@ -1,7 +1,7 @@
 //! V2Ray template processor
 
 use crate::protocols::{ProtocolProcessor, ProxyServer};
-use crate::utils::error::Result;
+use crate::core::error::Result;
 use crate::utils::source::parser::Source;
 use crate::utils::template::interpolation_parser::InterpolationRule;
 use indexmap::IndexMap;

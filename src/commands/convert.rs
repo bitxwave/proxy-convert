@@ -1,44 +1,12 @@
 //! Convert command processing module
 
 use crate::commands::cli;
+use crate::core::error::{ConvertError, Result};
+use crate::core::source::{SourceMeta, SourceProtocol};
 use crate::protocols;
 use crate::protocols::ProtocolRegistry;
 use crate::protocols::singbox;
-use crate::utils::{
-    error::{ConvertError, Result},
-    source,
-    template::template_engine,
-};
-
-/// source definition
-#[derive(Debug, Clone)]
-pub struct SourceMeta {
-    pub name: Option<String>, // optional name
-    pub source_type: SourceProtocol,
-    pub source: String,
-    pub format: Option<String>,
-    /// If set, use this flag when requesting URL (empty string = &flag=); else use protocol default
-    pub flag: Option<String>,
-}
-
-/// source type (subscription type)
-#[derive(Debug, Clone)]
-pub enum SourceProtocol {
-    Clash,
-    SingBox,
-    V2Ray,
-}
-
-impl SourceProtocol {
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s.to_lowercase().as_str() {
-            "clash" => Some(SourceProtocol::Clash),
-            "sing-box" | "singbox" => Some(SourceProtocol::SingBox),
-            "v2ray" => Some(SourceProtocol::V2Ray),
-            _ => None,
-        }
-    }
-}
+use crate::utils::{source, template::template_engine};
 
 /// Output protocol type
 #[derive(Debug, Clone)]
@@ -116,9 +84,9 @@ impl ConvertCommand {
             }
             let template_content =
                 std::fs::read_to_string(template_path).map_err(|e| ConvertError::IoError(e))?;
-            template_engine.process_template(&template_content)?
+            template_engine.process_template(&template_content, registry)?
         } else {
-            Self::generate_default_config(&template_engine, output_protocol)?
+            Self::generate_default_config(&template_engine, output_protocol, registry)?
         };
 
         // Get output format and filename based on protocol
@@ -221,6 +189,7 @@ impl ConvertCommand {
     fn generate_default_config(
         template_engine: &template_engine::TemplateEngine,
         output_protocol: &OutputProtocol,
+        registry: &ProtocolRegistry,
     ) -> Result<String> {
         // Get default template from the protocol module based on output protocol
         let template_str = match output_protocol {
@@ -230,7 +199,7 @@ impl ConvertCommand {
         };
 
         // Process template to replace interpolation rules like {{ALL-TAG}}
-        template_engine.process_template(&template_str)
+        template_engine.process_template(&template_str, registry)
     }
 
     /// Format output based on the specified format
@@ -316,11 +285,7 @@ pub async fn handle_convert(
 
     tracing::info!("Starting conversion");
     for (i, m) in final_sources.iter().enumerate() {
-        let type_str = match &m.source_type {
-            SourceProtocol::Clash => "clash",
-            SourceProtocol::SingBox => "singbox",
-            SourceProtocol::V2Ray => "v2ray",
-        };
+        let type_str = m.source_type.as_format_str();
         let name_str = m.name.as_deref().unwrap_or("(none)");
         let flag_str = m.flag.as_deref().unwrap_or("(default)");
         tracing::info!(

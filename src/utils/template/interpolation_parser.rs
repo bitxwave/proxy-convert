@@ -1,4 +1,4 @@
-use crate::utils::error::{ConvertError, Result};
+use crate::core::error::{ConvertError, Result};
 
 /// Interpolation rule types
 #[derive(Debug, Clone, PartialEq)]

@@ -2,7 +2,7 @@
 
 use crate::core::config::AppConfig;
 use crate::protocols::{clash, singbox, v2ray, ProtocolRegistry};
-use crate::utils::error::{ConvertError, Result};
+use crate::core::error::{ConvertError, Result};
 use tracing::info;
 
 /// Handle validate command

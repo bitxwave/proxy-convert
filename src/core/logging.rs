@@ -1,6 +1,6 @@
 //! Logging module
 
-use crate::utils::error::Result;
+use crate::core::error::Result;
 use tracing::{info, Level};
 use tracing_subscriber::EnvFilter;
 

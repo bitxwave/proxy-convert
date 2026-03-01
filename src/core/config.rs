@@ -1,6 +1,6 @@
 //! Config management - load and merge application configuration.
 
-use crate::utils::error::{ConvertError, Result};
+use crate::core::error::{ConvertError, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -85,24 +85,36 @@ impl Default for AppConfig {
 }
 
 impl AppConfig {
-    pub fn load() -> Result<Self> {
-        let config_paths = Self::get_config_paths();
+    /// Load config: optional file from default paths (first existing) + env vars.
+    /// Env vars (PROXY_CONVERT_*) override file. Used when no explicit config path is given.
+    fn load_default_locations() -> Result<Self> {
+        let paths = Self::get_config_paths();
+        let mut builder = config::Config::builder();
 
-        for path in config_paths {
+        for path in &paths {
             if path.exists() {
-                let config_str =
-                    std::fs::read_to_string(&path).map_err(|e| ConvertError::IoError(e))?;
-
-                let config: AppConfig = serde_yaml::from_str(&config_str)
-                    .map_err(|e| ConvertError::ConfigValidationError(e.to_string()))?;
-
+                builder = builder.add_source(config::File::from(path.as_path()).required(true));
                 tracing::info!("Load config file: {}", path.display());
-                return Ok(config);
+                break;
             }
         }
+        builder = builder.add_source(
+            config::Environment::with_prefix("PROXY_CONVERT").separator("__"),
+        );
+        let c = builder
+            .build()
+            .map_err(|e| ConvertError::ConfigValidationError(e.to_string()))?;
+        let config: AppConfig = c
+            .try_deserialize()
+            .map_err(|e| ConvertError::ConfigValidationError(e.to_string()))?;
+        if !paths.iter().any(|p| p.exists()) {
+            tracing::info!("No config file found, using defaults and env");
+        }
+        Ok(config)
+    }
 
-        tracing::info!("Using default config");
-        Ok(Self::default())
+    pub fn load() -> Result<Self> {
+        Self::load_default_locations()
     }
 
     fn get_config_paths() -> Vec<PathBuf> {
@@ -185,26 +197,23 @@ impl AppConfig {
         Ok(())
     }
 
-    /// Load application configuration
+    /// Load application configuration.
+    /// Priority: explicit path (if given) > default paths (first existing) > env (PROXY_CONVERT_*) > serde defaults.
     pub fn load_from_path(config_path: Option<&str>) -> Result<Self> {
         let config = if let Some(path) = config_path {
-            // Load configuration from specified path
-            let config = config::Config::builder()
-                .add_source(config::File::from(std::path::Path::new(path)))
-                .add_source(config::Environment::with_prefix("PROXY_CONVERT"))
+            let c = config::Config::builder()
+                .add_source(config::File::from(std::path::Path::new(path)).required(true))
+                .add_source(
+                    config::Environment::with_prefix("PROXY_CONVERT").separator("__"),
+                )
                 .build()
-                .map_err(|e| {
-                    crate::utils::error::ConvertError::ConfigValidationError(e.to_string())
-                })?;
+                .map_err(|e| ConvertError::ConfigValidationError(e.to_string()))?;
 
-            config.try_deserialize().map_err(|e| {
-                crate::utils::error::ConvertError::ConfigValidationError(e.to_string())
+            c.try_deserialize().map_err(|e| {
+                ConvertError::ConfigValidationError(e.to_string())
             })?
         } else {
-            // Use default configuration
-            Self::load().map_err(|e| {
-                crate::utils::error::ConvertError::ConfigValidationError(e.to_string())
-            })?
+            Self::load_default_locations()?
         };
 
         tracing::info!("Configuration loaded successfully");

@@ -7,11 +7,8 @@
 //! 4. Outputting the final result
 
 use super::interpolation_parser::InterpolationParser;
-use crate::protocols::{
-    clash::template_processor::ClashProcessor, singbox::template_processor::SingboxProcessor,
-    v2ray::template_processor::V2RayProcessor, ProtocolProcessor, ProtocolRegistry, ProxyServer,
-};
-use crate::utils::error::{ConvertError, Result};
+use crate::protocols::{ProtocolProcessor, ProtocolRegistry, ProxyServer};
+use crate::core::error::{ConvertError, Result};
 use crate::utils::source::parser::Source;
 use indexmap::IndexMap;
 
@@ -37,29 +34,24 @@ impl TemplateEngine {
         );
     }
 
-    /// Process template interpolation
-    pub fn process_template(&self, template: &str) -> Result<String> {
-        // Step 1: Parse template and identify protocol type
-        let protocol_type = self.identify_protocol(template)?;
+    /// Process template interpolation using the given registry for format detection and processor lookup.
+    pub fn process_template(&self, template: &str, registry: &ProtocolRegistry) -> Result<String> {
+        // Step 1: Identify protocol type from template (use registry's format detection)
+        let protocol_type = Self::identify_protocol(template, registry)?;
 
-        // Step 2: Get appropriate processor for the protocol
-        let processor: Box<dyn ProtocolProcessor> = match protocol_type.as_str() {
-            "singbox" => Box::new(SingboxProcessor),
-            "clash" => Box::new(ClashProcessor),
-            "v2ray" => Box::new(V2RayProcessor),
-            _ => {
-                return Err(ConvertError::ConfigValidationError(format!(
+        // Step 2: Get processor from registry
+        let processor = registry
+            .get_processor(&protocol_type)
+            .ok_or_else(|| {
+                ConvertError::ConfigValidationError(format!(
                     "Unsupported protocol type: {}",
                     protocol_type
-                )));
-            }
-        };
+                ))
+            })?;
 
         // Step 3: Parse template as JSON or YAML
-        // Try JSON first, then fall back to YAML
         let mut config: serde_json::Value = serde_json::from_str(template)
             .or_else(|_| {
-                // Try to parse as YAML
                 serde_yaml::from_str::<serde_json::Value>(template)
                     .map_err(|e| ConvertError::ConfigValidationError(format!(
                         "Failed to parse template as JSON or YAML: {}",
@@ -69,7 +61,7 @@ impl TemplateEngine {
 
         // Step 4: Process interpolation rules in JSON structure
         let mut all_nodes = Vec::new();
-        self.process_json_value(&mut config, &processor, &mut all_nodes)?;
+        self.process_json_value(&mut config, processor, &mut all_nodes)?;
 
         // Step 5: Process default field using protocol-specific processor
         let unique_nodes = self.deduplicate_nodes(&all_nodes);
@@ -90,7 +82,7 @@ impl TemplateEngine {
     fn process_json_value(
         &self,
         value: &mut serde_json::Value,
-        processor: &Box<dyn ProtocolProcessor>,
+        processor: &dyn ProtocolProcessor,
         all_nodes: &mut Vec<ProxyServer>,
     ) -> Result<()> {
         match value {
@@ -200,15 +192,11 @@ impl TemplateEngine {
         Ok(())
     }
 
-    /// Identify protocol type from template
-    fn identify_protocol(&self, template: &str) -> Result<String> {
-        let registry = ProtocolRegistry::new();
-
-        // Try to auto-detect format
+    /// Identify protocol type from template content using registry's format detection.
+    fn identify_protocol(template: &str, registry: &ProtocolRegistry) -> Result<String> {
         if let Ok(Some((format, _))) = registry.auto_detect_format(template) {
             return Ok(format);
         }
-
         // Default to singbox if cannot detect
         Ok("singbox".to_string())
     }

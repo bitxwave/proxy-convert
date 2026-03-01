@@ -79,16 +79,16 @@ cargo install --git https://github.com/your-username/proxy-convert.git
     - 示例：`./config.yaml?type=clash`、`https://example.com/sub?type=clash&name=my&flag=clash`、`examples/sources/Eternal Network?type=singbox`
     - 配置文件 `sources` 也使用相同格式的字符串列表（见下方配置示例）。
 
-- **验证配置文件**：验证配置文件的格式和内容正确性
+- **验证配置文件**：验证配置文件的格式
 
   ```bash
-  proxy-convert validate <config_file>
+  proxy-convert validate <FILE> [-f, --format <FORMAT>]
   ```
 
 - **生成模板**：
 
   ```bash
-  proxy-convert template <protocol> --output <config_file>
+  proxy-convert template [-o, --output <OUTPUT>] [-t, --template-type <TYPE>]
   ```
 
 - **显示版本信息**：
@@ -205,7 +205,7 @@ proxy-convert version
 - 排除所有来源中匹配 AD 的节点
 - 排除 singbox1 来源中匹配 BLOCKED 的节点
 
-#### `INCLUDE-TAG` 和 `ECXCLUDE-TAG` 组合使用
+#### `INCLUDE-TAG` 和 `EXCLUDE-TAG` 组合使用
 
 `{{INCLUDE-TAG}}` 和 `{{EXCLUDE-TAG}}` 同时存在于同一插值括号中时，它们的组合关系：
 
@@ -299,112 +299,77 @@ proxy-convert version
 
 ```yaml
 # config.yaml
-# 基本配置
 user_agent: "ProxyConfigConverter/3.0.0"
 timeout_seconds: 30
 retry_count: 3
-cache_ttl_seconds: 3600
-
-# 日志配置
 log_level: info
-
-# 输入输出配置
-default_input_format: clash
-default_output_format: singbox
 output_format: json
-output: config.json
-
-# 模板目录
-template_dir: ~/.config/proxy-convert/templates
-
-# 来源配置（可选，与 --source 格式一致：<path|url>?type=...&name=...&flag=...）
-sources:
-  - "./clash.yaml?type=clash&name=clash1"
-  - "./singbox.json?type=singbox&name=singbox1"
+default_output_format: singbox
+# sources 与 --source 格式一致：<path|url>?type=...&name=...&flag=...
+# sources:
+#   - "./clash.yaml?type=clash&name=clash1"
+#   - "https://example.com/sub?type=singbox&name=sub1"
 ```
 
 **配置项说明：**
 
-- `user_agent`：HTTP 请求的用户代理字符串
+- `user_agent`：HTTP 请求的 User-Agent
 - `timeout_seconds`：网络请求超时时间（秒）
-- `retry_count`：网络请求重试次数
-- `cache_ttl_seconds`：缓存生存时间（秒）
+- `retry_count`：失败重试次数
 - `log_level`：日志级别（error/warn/info/debug/trace）
-- `default_input_format`：默认输入格式
-- `default_output_format`：默认输出格式
+- `default_output_format`：默认输出协议（singbox/clash/v2ray）
 - `output_format`：输出格式（json/pretty/yaml）
 - `output`：默认输出文件路径
-- `template_dir`：模板文件目录
-- `sources`：预定义的来源列表（每项为 URL 格式字符串，与命令行 `--source` 一致）
+- `template`：默认模板文件路径
+- `sources`：预定义来源列表（与命令行 `--source` 格式一致）
 
 ### 环境变量
 
-所有配置项都可以通过环境变量覆盖，格式为 `PROXY_CONVERT_<KEY>`：
+所有配置项均可通过环境变量覆盖，格式为 `PROXY_CONVERT_<KEY>`（嵌套键使用 `__`）：
 
 ```bash
-# 日志级别
 export PROXY_CONVERT_LOG_LEVEL=debug
-
-# 网络配置
 export PROXY_CONVERT_TIMEOUT_SECONDS=60
-export PROXY_CONVERT_RETRY_COUNT=5
-export PROXY_CONVERT_CACHE_TTL_SECONDS=7200
-
-# 输入输出格式
-export PROXY_CONVERT_DEFAULT_INPUT_FORMAT=clash
 export PROXY_CONVERT_DEFAULT_OUTPUT_FORMAT=v2ray
-export PROXY_CONVERT_OUTPUT_FORMAT=yaml
-
-# 输出路径
-export PROXY_CONVERT_OUTPUT=./output/config.json
-
-# 模板目录
-export PROXY_CONVERT_TEMPLATE_DIR=./templates
 ```
 
-**环境变量使用场景：**
-
-- **容器化部署**：在 Docker 容器中设置环境变量
-- **CI/CD 流程**：在自动化流程中动态配置
-- **多环境部署**：不同环境使用不同的配置
-- **临时配置**：临时覆盖某些配置项
+**配置优先级：** 命令行 > 环境变量 > 配置文件 > 默认值
 
 ## 🏗️ 项目结构
 
 ```tree
 src/
-├── main.rs              # 程序入口，CLI 命令分发和程序初始化
-├── core/                # 核心模块
-│   ├── error.rs         # 错误处理，定义所有错误类型和错误转换
-│   ├── config.rs        # 配置管理，加载和管理配置文件
-│   ├── converter.rs     # 核心转换器，处理协议转换逻辑
-│   ├── http_client.rs   # HTTP 客户端，处理网络请求
-│   ├── multi_input.rs   # 多输入整合 ✨，管理多个输入源
-│   └── output.rs        # 输出管理，处理不同格式的输出
+├── main.rs              # 程序入口，CLI 命令分发
+├── lib.rs               # 库入口，供二进制与集成测试使用
+├── core/                 # 领域与核心
+│   ├── config.rs        # 配置管理
+│   ├── error.rs         # 全局错误类型
+│   ├── logging.rs      # 日志初始化
+│   └── source.rs        # SourceMeta、SourceProtocol（领域类型）
 ├── protocols/           # 协议模块
-│   ├── mod.rs           # 协议注册表，管理所有协议转换器
-│   ├── common/          # 通用工具，共享的数据结构和工具函数
-│   ├── clash/           # Clash 协议支持，解析和生成 Clash 配置
-│   ├── singbox/         # Sing-box 协议支持，解析和生成 Sing-box 配置
-│   └── v2ray/           # V2Ray 协议支持，解析和生成 V2Ray 配置
-├── commands/            # 命令模块
-│   ├── cli.rs           # CLI 定义，使用 clap 定义命令行接口
-│   ├── convert.rs       # 转换命令 ✨，处理配置转换逻辑
-│   ├── validate.rs      # 验证命令，验证配置文件
-│   ├── template.rs      # 模板命令，生成模板文件
-│   └── version.rs       # 版本命令，显示版本信息
-└── utils/               # 工具模块
-    ├── file.rs          # 文件操作，文件读写和路径处理
-    ├── url.rs           # URL 处理，URL 解析和验证
-    └── template.rs      # 模板处理 ✨，插值规则解析和模板渲染
+│   ├── mod.rs           # 协议注册表、ProxyServer、ProtocolProcessor
+│   ├── detect.rs        # 格式检测（clash/singbox/v2ray/subscription/plain）
+│   ├── subscription.rs  # 订阅与纯文本解析（vmess/trojan/ss URL）
+│   ├── clash/           # Clash 协议支持
+│   ├── singbox/         # Sing-box 协议支持
+│   └── v2ray/           # V2Ray 协议支持
+├── commands/            # CLI 命令
+│   ├── cli.rs           # CLI 定义
+│   ├── convert.rs      # 转换命令
+│   ├── validate.rs     # 验证命令
+│   ├── template.rs     # 模板命令
+│   └── version.rs      # 版本命令
+└── utils/               # 工具
+    ├── source/         # 来源加载与解析
+    └── template/       # 模板插值与引擎
 ```
 
 **模块职责说明：**
 
-- **core**：核心业务逻辑，包含配置管理、转换器、多输入整合等
-- **protocols**：协议支持，每种协议都有独立的模块
-- **commands**：CLI 命令实现，每个命令对应一个模块
-- **utils**：通用工具函数，提供文件、URL、模板等基础功能
+- **core**：领域类型与全局错误、配置、日志
+- **protocols**：格式检测、订阅解析、各协议实现与 Processor 注册
+- **commands**：CLI 命令实现
+- **utils**：来源加载、模板解析与渲染
 
 ## 🔧 开发
 
@@ -448,76 +413,61 @@ src/
 ### 添加新的协议支持
 
 1. 在 `src/protocols/` 下创建新的协议模块
-2. 实现 `ProtocolConverter` trait
-3. 在 `src/main.rs` 的 `init_protocol_registry()` 中注册新协议
+2. 实现 `ProtocolProcessor` trait（模板处理）
+3. 在 `src/protocols/mod.rs` 的 `ProtocolRegistry::init()` 中注册：
+   `registry.register("format_name", Box::new(YourProcessor));`
+4. 若需支持该格式的解析，在 Registry 中补充对应 `parse_content` 等逻辑（如 subscription/plain 使用 `subscription` 模块）
 
 ### 示例：添加新协议
 
 ```rust
 // src/protocols/new_protocol/mod.rs
-use crate::utils::error::Result;
-use crate::protocols::{ProtocolConverter, ProxyServer};
+use crate::core::error::Result;
+use crate::protocols::{ProtocolProcessor, ProxyServer};
+use crate::utils::template::interpolation_parser::InterpolationRule;
+use indexmap::IndexMap;
+use crate::utils::source::parser::Source;
 
-pub struct NewProtocolConverter;
+pub struct NewProtocolProcessor;
 
-impl ProtocolConverter for NewProtocolConverter {
-    fn name(&self) -> &str {
-        "new_protocol"
+impl ProtocolProcessor for NewProtocolProcessor {
+    fn process_rule(&self, _rule: &InterpolationRule, _sources: &IndexMap<String, Source>) -> Result<String> {
+        Ok(String::new())
     }
-
-    fn supported_input_formats(&self) -> &[&str] {
-        &["json", "yaml"]
+    fn get_nodes_for_rule(&self, rule: &InterpolationRule, sources: &IndexMap<String, Source>) -> Result<Vec<ProxyServer>> {
+        // ...
     }
-
-    fn supported_output_formats(&self) -> &[&str] {
-        &["singbox", "clash"]
+    fn set_default_values(&self, template: &str, nodes: &[ProxyServer]) -> Result<String> {
+        // ...
     }
-
-    fn detect_format(&self, content: &str) -> Result<Option<String>> {
-        // 实现格式检测逻辑
-        Ok(None)
+    fn append_nodes(&self, template: &str, nodes: &[ProxyServer]) -> Result<String> {
+        // ...
     }
-
-    fn parse_input(&self, content: &str, format: &str) -> Result<Vec<ProxyServer>> {
-        // 实现输入解析逻辑
-        Ok(vec![])
-    }
-
-    fn generate_output(&self, servers: &[ProxyServer], format: &str, template: Option<&str>) -> Result<String> {
-        // 实现输出生成逻辑
-        Ok("".to_string())
-    }
-
-    fn validate_output(&self, content: &str, format: &str) -> Result<bool> {
-        // 实现输出验证逻辑
-        Ok(true)
+    fn create_node_config(&self, node: &ProxyServer) -> String {
+        // ...
     }
 }
+```
+
+然后在 `ProtocolRegistry::init()` 中注册：
+
+```rust
+registry.register("new_protocol", Box::new(new_protocol::NewProtocolProcessor));
 ```
 
 ### 构建与测试
 
 ```bash
 # 构建项目
-cargo build                    # 开发构建
-cargo build --release          # 发布构建
+cargo build
+cargo build --release
 
-# 运行测试
-cargo test                     # 运行所有测试
-cargo test -- --nocapture      # 显示测试输出
-cargo test -- --test-threads=1 # 单线程测试
+# 运行测试（含单元测试与 tests/ 下集成测试）
+cargo test
 
-# 代码质量检查
-cargo clippy                   # 代码质量检查
-cargo clippy -- -D warnings    # 将警告视为错误
-
-# 代码格式化
-cargo fmt                      # 格式化代码
-cargo fmt --check              # 检查代码格式
-
-# 依赖检查
-cargo audit                    # 安全漏洞检查
-cargo outdated                 # 检查过时的依赖
+# 代码质量
+cargo clippy
+cargo fmt
 ```
 
 ### 开发环境设置
@@ -614,7 +564,7 @@ A: 程序支持重试机制，可以通过配置文件设置 `retry_count` 和 `
 
 ### Q: 如何扩展支持新的代理协议？
 
-A: 参考文档中的"添加新的协议支持"部分，实现 `ProtocolConverter` trait 并在协议注册表中注册。
+A: 参考文档中的「添加新的协议支持」部分，实现 `ProtocolProcessor` trait 并在 `ProtocolRegistry::init()` 中注册。
 
 ### Q: 模板文件中的插值规则必须用引号包围吗？
 

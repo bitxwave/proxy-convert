@@ -1,5 +1,4 @@
-//! Utility Module - Contains various utility functions
+//! Utility Module - file, source, template (error lives in core)
 
-pub mod error;
 pub mod source;
 pub mod template;

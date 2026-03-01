@@ -1,11 +1,10 @@
 //! Source loader for loading and parsing configurations
 
-use crate::commands::convert::{SourceMeta, SourceProtocol};
+use crate::core::source::{SourceMeta, SourceProtocol};
 use crate::core::config::AppConfig;
+use crate::core::error::{ConvertError, Result};
 use crate::protocols::{clash, singbox, v2ray, ProtocolRegistry};
-use crate::utils::error::{ConvertError, Result};
 use crate::utils::source::parser::{Config, Source};
-use std::io::{Error, ErrorKind};
 use std::path::Path;
 
 /// Source loader for loading and parsing configurations
@@ -151,33 +150,31 @@ impl SourceLoader {
         }
     }
 
-    /// Load content from URL
+    /// Load content from URL (uses NetworkError for fetch failures).
     async fn load_from_url(url: &str, config: &AppConfig) -> Result<String> {
         tracing::info!("Fetching URL: {}", url);
 
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(config.timeout_seconds))
             .build()
-            .map_err(|e| ConvertError::IoError(Error::new(ErrorKind::Other, e)))?;
+            .map_err(|e| ConvertError::network_error(e.to_string().as_str()))?;
 
         let response = client
             .get(url)
             .send()
             .await
-            .map_err(|e| ConvertError::IoError(Error::new(ErrorKind::Other, e)))?;
+            .map_err(|e| ConvertError::network_error(e.to_string().as_str()))?;
 
         if !response.status().is_success() {
-            return Err(ConvertError::ConfigValidationError(format!(
-                "Failed to fetch URL: {} - Status: {}",
-                url,
-                response.status()
-            )));
+            return Err(ConvertError::network_error(
+                &format!("Failed to fetch URL: {} - Status: {}", url, response.status()),
+            ));
         }
 
         let content = response
             .text()
             .await
-            .map_err(|e| ConvertError::IoError(Error::new(ErrorKind::Other, e)))?;
+            .map_err(|e| ConvertError::network_error(e.to_string().as_str()))?;
 
         Ok(content)
     }
@@ -208,11 +205,11 @@ impl SourceLoader {
                 Ok(Config::V2Ray(config))
             }
             "subscription" => {
-                let servers = registry.parse_subscription_format_pub(content)?;
+                let servers = registry.parse_subscription_to_servers(content)?;
                 Ok(Config::Subscription(servers))
             }
             "plain" => {
-                let servers = registry.parse_plain_text_format_pub(content)?;
+                let servers = registry.parse_plain_text_to_servers(content)?;
                 Ok(Config::Plain(servers))
             }
             _ => Err(ConvertError::ConfigValidationError(format!(

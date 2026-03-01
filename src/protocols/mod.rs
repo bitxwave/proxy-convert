@@ -1,10 +1,16 @@
-//! Protocol Module - Handle conversion between different proxy configuration formats
+//! Protocol Module - Handle conversion between different proxy configuration formats.
+//!
+//! - **detect**: Format detection (clash/singbox/v2ray/subscription/plain).
+//! - **subscription**: Parse subscription and plain-text proxy URLs.
+//! - **Registry**: Holds ProtocolProcessors and delegates parsing to protocol submodules and subscription.
 
 pub mod clash;
+pub mod detect;
 pub mod singbox;
+pub mod subscription;
 pub mod v2ray;
 
-use crate::utils::error::Result;
+use crate::core::error::Result;
 use crate::utils::source::parser::Source;
 use crate::utils::template::interpolation_parser::InterpolationRule;
 use indexmap::IndexMap;
@@ -30,8 +36,8 @@ pub struct ProxyServer {
     pub parameters: HashMap<String, serde_json::Value>,
 }
 
-/// Protocol processor trait - each protocol should implement this
-pub trait ProtocolProcessor {
+/// Protocol processor trait - each protocol implements this for template processing.
+pub trait ProtocolProcessor: Send + Sync {
     /// Process interpolation rules for this protocol
     fn process_rule(
         &self,
@@ -64,18 +70,27 @@ pub trait ProtocolProcessor {
     fn create_node_config(&self, node: &ProxyServer) -> String;
 }
 
-/// Protocol converter registry
-pub struct ProtocolRegistry {}
+/// Protocol converter registry: format detection, parsing, and processor lookup.
+pub struct ProtocolRegistry {
+    processors: HashMap<String, Box<dyn ProtocolProcessor>>,
+}
 
 impl ProtocolRegistry {
-    /// Create new registry
+    /// Create new empty registry (for tests or custom setup).
     pub fn new() -> Self {
-        Self {}
+        Self {
+            processors: HashMap::new(),
+        }
     }
 
-    /// Get converter
-    pub fn get(&self, _name: &str) -> Option<&(dyn std::any::Any + Send + Sync)> {
-        None
+    /// Register a processor for a format name (e.g. "clash", "singbox", "v2ray").
+    pub fn register(&mut self, format: &str, processor: Box<dyn ProtocolProcessor>) {
+        self.processors.insert(format.to_lowercase(), processor);
+    }
+
+    /// Get processor by format name. Used by TemplateEngine.
+    pub fn get_processor(&self, format: &str) -> Option<&dyn ProtocolProcessor> {
+        self.processors.get(&format.to_lowercase()).map(|b| b.as_ref())
     }
 
     /// Parse content to ProxyServer list based on format
@@ -88,7 +103,7 @@ impl ProtocolRegistry {
             "v2ray" => self.parse_v2ray_format(content),
             "subscription" => self.parse_subscription_format(content),
             "plain" => self.parse_plain_text_format(content),
-            _ => Err(crate::utils::error::ConvertError::ConfigValidationError(
+            _ => Err(crate::core::error::ConvertError::ConfigValidationError(
                 format!("Unsupported input format: {}", format),
             )),
         }
@@ -108,171 +123,23 @@ impl ProtocolRegistry {
             "v2ray" => self.parse_v2ray_config(content),
             "subscription" => self.parse_subscription_config(content),
             "plain" => self.parse_plain_text_config(content),
-            _ => Err(crate::utils::error::ConvertError::ConfigValidationError(
+            _ => Err(crate::core::error::ConvertError::ConfigValidationError(
                 format!("Unsupported input format: {}", format),
             )),
         }
     }
 
-    /// Auto-detect input format
+    /// Auto-detect input format (delegates to detect module).
     pub fn auto_detect_format(&self, content: &str) -> Result<Option<(String, String)>> {
-        let content = content.trim();
-
-        // Try parse as JSON
-        if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(content) {
-            if Self::is_clash_format(&json_value) {
-                return Ok(Some((
-                    "clash".to_string(),
-                    "Clash configuration".to_string(),
-                )));
-            }
-
-            if Self::is_singbox_format(&json_value) {
-                return Ok(Some((
-                    "singbox".to_string(),
-                    "Sing-box configuration".to_string(),
-                )));
-            }
-
-            if Self::is_v2ray_format(&json_value) {
-                return Ok(Some((
-                    "v2ray".to_string(),
-                    "V2Ray configuration".to_string(),
-                )));
-            }
-        }
-
-        // Try parse as YAML
-        if let Ok(yaml_value) = serde_yaml::from_str::<serde_json::Value>(content) {
-            if Self::is_clash_format(&yaml_value) {
-                return Ok(Some((
-                    "clash".to_string(),
-                    "Clash configuration (YAML)".to_string(),
-                )));
-            }
-
-            if Self::is_singbox_format(&yaml_value) {
-                return Ok(Some((
-                    "singbox".to_string(),
-                    "Sing-box configuration (YAML)".to_string(),
-                )));
-            }
-
-            if Self::is_v2ray_format(&yaml_value) {
-                return Ok(Some((
-                    "v2ray".to_string(),
-                    "V2Ray configuration (YAML)".to_string(),
-                )));
-            }
-        }
-
-        // Subscription format (base64)
-        if Self::is_subscription_format(content) {
-            return Ok(Some((
-                "subscription".to_string(),
-                "Subscription format (base64)".to_string(),
-            )));
-        }
-
-        // Plain text (one proxy per line)
-        if Self::is_plain_text_format(content) {
-            return Ok(Some(("plain".to_string(), "Plain text format".to_string())));
-        }
-
-        Ok(None)
+        detect::detect_format(content)
     }
 
-    /// Check if JSON value is Clash format
-    fn is_clash_format(json: &serde_json::Value) -> bool {
-        // Clash: port, socks-port, proxies, proxy-groups, mixed-port, external-controller
-        json.get("port").is_some()
-            || json.get("socks-port").is_some()
-            || json.get("mixed-port").is_some()
-            || json.get("external-controller").is_some()
-            || json.get("proxies").is_some()
-            || json.get("proxy-groups").is_some()
-    }
-
-    /// Check if JSON value is Sing-box format
-    fn is_singbox_format(json: &serde_json::Value) -> bool {
-        // Sing-box: log, inbounds, outbounds, route, experimental, dns (V2Ray has routing)
-        let has_singbox_fields = json.get("experimental").is_some()
-            || json.get("dns").is_some()
-            || json.get("route").is_some();
-
-        has_singbox_fields
-            || (json.get("log").is_some()
-                && json.get("inbounds").is_some()
-                && json.get("outbounds").is_some()
-                && json.get("routing").is_none())
-    }
-
-    /// Check if JSON value is V2Ray format
-    fn is_v2ray_format(json: &serde_json::Value) -> bool {
-        // V2Ray: log, inbounds, outbounds, routing, api, stats
-        let has_v2ray_fields = json.get("routing").is_some()
-            || json.get("api").is_some()
-            || json.get("stats").is_some();
-
-        has_v2ray_fields
-            || (json.get("log").is_some()
-                && json.get("inbounds").is_some()
-                && json.get("outbounds").is_some()
-                && json.get("routing").is_some())
-    }
-
-    /// Check if content is subscription format
-    fn is_subscription_format(content: &str) -> bool {
-        // vmess://, trojan://, ss://, etc. or base64
-        content.starts_with("vmess://")
-            || content.starts_with("trojan://")
-            || content.starts_with("ss://")
-            || content.starts_with("ssr://")
-            || content.starts_with("http://")
-            || content.starts_with("https://")
-            || Self::is_base64_encoded(content)
-    }
-
-    /// Check if content is plain text format
-    fn is_plain_text_format(content: &str) -> bool {
-        // One proxy per line with protocol prefix
-        let lines: Vec<&str> = content.lines().collect();
-        if lines.len() < 2 {
-            return false;
-        }
-
-        lines.iter().take(3).any(|line| {
-            let line = line.trim();
-            !line.is_empty()
-                && !line.starts_with('#')
-                && (line.starts_with("vmess://")
-                    || line.starts_with("trojan://")
-                    || line.starts_with("ss://")
-                    || line.starts_with("ssr://")
-                    || line.starts_with("http://")
-                    || line.starts_with("https://"))
-        })
-    }
-
-    /// Check if string is base64 encoded
-    fn is_base64_encoded(s: &str) -> bool {
-        // Trim, length multiple of 4, base64 charset only
-        let trimmed: String = s.chars().filter(|c| !c.is_whitespace()).collect();
-        if trimmed.is_empty() || trimmed.len() % 4 != 0 {
-            return false;
-        }
-
-        let base64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
-        trimmed.chars().all(|c| base64_chars.contains(c))
-    }
-
-    /// Initialize protocol registry
+    /// Initialize protocol registry with built-in processors (clash, singbox, v2ray).
     pub fn init() -> Self {
-        let registry = Self::new();
-
-        // Register various protocol converters
-        // TODO: Register specific protocol converters here
-
+        let mut registry = Self::new();
+        registry.register("clash", Box::new(clash::template_processor::ClashProcessor));
+        registry.register("singbox", Box::new(singbox::template_processor::SingboxProcessor));
+        registry.register("v2ray", Box::new(v2ray::template_processor::V2RayProcessor));
         tracing::info!("Protocol registry initialized successfully");
         registry
     }
@@ -291,7 +158,7 @@ impl ProtocolRegistry {
             return self.convert_clash_config_to_servers(&config);
         }
 
-        Err(crate::utils::error::ConvertError::ConfigValidationError(
+        Err(crate::core::error::ConvertError::ConfigValidationError(
             "Failed to parse Clash configuration".to_string(),
         ))
     }
@@ -310,7 +177,7 @@ impl ProtocolRegistry {
             return Ok(config);
         }
 
-        Err(crate::utils::error::ConvertError::ConfigValidationError(
+        Err(crate::core::error::ConvertError::ConfigValidationError(
             "Failed to parse Clash configuration".to_string(),
         ))
     }
@@ -329,7 +196,7 @@ impl ProtocolRegistry {
             return self.convert_singbox_config_to_servers(&config);
         }
 
-        Err(crate::utils::error::ConvertError::ConfigValidationError(
+        Err(crate::core::error::ConvertError::ConfigValidationError(
             "Failed to parse Sing-box configuration".to_string(),
         ))
     }
@@ -348,7 +215,7 @@ impl ProtocolRegistry {
             return Ok(config);
         }
 
-        Err(crate::utils::error::ConvertError::ConfigValidationError(
+        Err(crate::core::error::ConvertError::ConfigValidationError(
             "Failed to parse Sing-box configuration".to_string(),
         ))
     }
@@ -367,7 +234,7 @@ impl ProtocolRegistry {
             return self.convert_v2ray_config_to_servers(&config);
         }
 
-        Err(crate::utils::error::ConvertError::ConfigValidationError(
+        Err(crate::core::error::ConvertError::ConfigValidationError(
             "Failed to parse V2Ray configuration".to_string(),
         ))
     }
@@ -386,30 +253,15 @@ impl ProtocolRegistry {
             return Ok(config);
         }
 
-        Err(crate::utils::error::ConvertError::ConfigValidationError(
+        Err(crate::core::error::ConvertError::ConfigValidationError(
             "Failed to parse V2Ray configuration".to_string(),
         ))
     }
 
-    /// Parse subscription format configuration
+    /// Parse subscription format (delegates to subscription module).
     fn parse_subscription_format(&self, content: &str) -> Result<Vec<ProxyServer>> {
         tracing::info!("Parsing subscription format configuration");
-
-        // Check if it's base64 encoded
-        if Self::is_base64_encoded(content) {
-            // Remove whitespace before decoding
-            let clean_content: String = content.chars().filter(|c| !c.is_whitespace()).collect();
-            if let Ok(decoded) =
-                base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &clean_content)
-            {
-                if let Ok(decoded_str) = String::from_utf8(decoded) {
-                    return self.parse_subscription_content(&decoded_str);
-                }
-            }
-        }
-
-        // Parse as plain text
-        self.parse_subscription_content(content)
+        subscription::parse_subscription(content)
     }
 
     /// Parse subscription format configuration to JSON
@@ -424,10 +276,10 @@ impl ProtocolRegistry {
         Ok(config)
     }
 
-    /// Parse plain text format configuration
+    /// Parse plain text format (delegates to subscription module).
     fn parse_plain_text_format(&self, content: &str) -> Result<Vec<ProxyServer>> {
         tracing::info!("Parsing plain text format configuration");
-        self.parse_subscription_content(content)
+        subscription::parse_plain_text(content)
     }
 
     /// Parse plain text format configuration to JSON
@@ -544,7 +396,7 @@ impl ProtocolRegistry {
             }
             _ => {
                 tracing::warn!("Unsupported Clash proxy type: {:?}", proxy);
-                return Err(crate::utils::error::ConvertError::ConfigValidationError(
+                return Err(crate::core::error::ConvertError::ConfigValidationError(
                     format!("Unsupported Clash proxy type: {:?}", proxy),
                 ));
             }
@@ -748,238 +600,14 @@ impl ProtocolRegistry {
         }
     }
 
-    /// Public method to parse subscription format
-    pub fn parse_subscription_format_pub(&self, content: &str) -> Result<Vec<ProxyServer>> {
+    /// Parse subscription format to ProxyServer list. Public API for SourceLoader.
+    pub fn parse_subscription_to_servers(&self, content: &str) -> Result<Vec<ProxyServer>> {
         self.parse_subscription_format(content)
     }
 
-    /// Public method to parse plain text format
-    pub fn parse_plain_text_format_pub(&self, content: &str) -> Result<Vec<ProxyServer>> {
+    /// Parse plain text format to ProxyServer list. Public API for SourceLoader.
+    pub fn parse_plain_text_to_servers(&self, content: &str) -> Result<Vec<ProxyServer>> {
         self.parse_plain_text_format(content)
-    }
-
-    /// Parse subscription content (base64 decoded or plain text)
-    fn parse_subscription_content(&self, content: &str) -> Result<Vec<ProxyServer>> {
-        let mut servers = Vec::new();
-        let lines: Vec<&str> = content.lines().collect();
-
-        for line in lines {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-
-            if let Some(server) = self.parse_proxy_url(line)? {
-                servers.push(server);
-            }
-        }
-
-        Ok(servers)
-    }
-
-    /// Parse proxy URL (vmess://, trojan://, ss://, etc.)
-    fn parse_proxy_url(&self, url: &str) -> Result<Option<ProxyServer>> {
-        if url.starts_with("vmess://") {
-            self.parse_vmess_url(url)
-        } else if url.starts_with("trojan://") {
-            self.parse_trojan_url(url)
-        } else if url.starts_with("ss://") {
-            self.parse_shadowsocks_url(url)
-        } else {
-            tracing::warn!("Unsupported proxy URL: {}", url);
-            Ok(None)
-        }
-    }
-
-    /// Parse vmess:// URL
-    fn parse_vmess_url(&self, url: &str) -> Result<Option<ProxyServer>> {
-        // vmess://uuid@server:port?alterId=0&security=tls#name
-        let vmess_part = url.strip_prefix("vmess://").unwrap_or("");
-        if let Some(at_pos) = vmess_part.find('@') {
-            let uuid = &vmess_part[..at_pos];
-            let rest = &vmess_part[at_pos + 1..];
-
-            if let Some(hash_pos) = rest.find('#') {
-                let name = &rest[hash_pos + 1..];
-                let server_port = &rest[..hash_pos];
-
-                if let Some(colon_pos) = server_port.find(':') {
-                    let server = &server_port[..colon_pos];
-                    let port = server_port[colon_pos + 1..].parse::<u16>().unwrap_or(0);
-
-                    let mut parameters = HashMap::new();
-                    parameters.insert(
-                        "uuid".to_string(),
-                        serde_json::Value::String(uuid.to_string()),
-                    );
-
-                    Ok(Some(ProxyServer {
-                        name: name.to_string(),
-                        protocol: "vmess".to_string(),
-                        server: server.to_string(),
-                        port,
-                        password: None,
-                        method: None,
-                        parameters,
-                    }))
-                } else {
-                    Ok(None)
-                }
-            } else {
-                Ok(None)
-            }
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Parse trojan:// URL
-    fn parse_trojan_url(&self, url: &str) -> Result<Option<ProxyServer>> {
-        // trojan://password@server:port?security=tls&sni=example.com#name
-        let trojan_part = url.strip_prefix("trojan://").unwrap_or("");
-        if let Some(at_pos) = trojan_part.find('@') {
-            let password = &trojan_part[..at_pos];
-            let rest = &trojan_part[at_pos + 1..];
-
-            if let Some(hash_pos) = rest.find('#') {
-                let name = &rest[hash_pos + 1..];
-                let server_port = &rest[..hash_pos];
-
-                if let Some(colon_pos) = server_port.find(':') {
-                    let server = &server_port[..colon_pos];
-                    let port = server_port[colon_pos + 1..].parse::<u16>().unwrap_or(0);
-
-                    let mut parameters = HashMap::new();
-                    parameters.insert(
-                        "password".to_string(),
-                        serde_json::Value::String(password.to_string()),
-                    );
-
-                    Ok(Some(ProxyServer {
-                        name: name.to_string(),
-                        protocol: "trojan".to_string(),
-                        server: server.to_string(),
-                        port,
-                        password: Some(password.to_string()),
-                        method: None,
-                        parameters,
-                    }))
-                } else {
-                    Ok(None)
-                }
-            } else {
-                Ok(None)
-            }
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Parse ss:// URL (supports both legacy and SIP002 formats)
-    fn parse_shadowsocks_url(&self, url: &str) -> Result<Option<ProxyServer>> {
-        let ss_part = url.strip_prefix("ss://").unwrap_or("");
-
-        // Extract name (URL encoded, after #)
-        let (main_part, name) = if let Some(hash_pos) = ss_part.find('#') {
-            let name_encoded = &ss_part[hash_pos + 1..];
-            // URL decode the name
-            let name = urlencoding::decode(name_encoded)
-                .unwrap_or_else(|_| std::borrow::Cow::Borrowed(name_encoded))
-                .to_string();
-            (&ss_part[..hash_pos], name)
-        } else {
-            (ss_part, String::new())
-        };
-
-        // Remove query parameters if present
-        let main_part = main_part.split('?').next().unwrap_or(main_part);
-
-        // Check for SIP002 format: BASE64(method:password)@server:port
-        if let Some(at_pos) = main_part.rfind('@') {
-            let encoded = &main_part[..at_pos];
-            let server_port = &main_part[at_pos + 1..];
-
-            // Parse server:port
-            let (server, port) = if let Some(colon_pos) = server_port.rfind(':') {
-                let server = &server_port[..colon_pos];
-                let port = server_port[colon_pos + 1..].parse::<u16>().unwrap_or(0);
-                (server.to_string(), port)
-            } else {
-                return Ok(None);
-            };
-
-            // Decode base64 credentials (method:password)
-            // Try standard base64 first, then URL-safe base64
-            let decoded_result = base64::Engine::decode(
-                &base64::engine::general_purpose::STANDARD,
-                encoded,
-            )
-            .or_else(|_| {
-                base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE, encoded)
-            })
-            .or_else(|_| {
-                // Try with padding
-                let padded = match encoded.len() % 4 {
-                    2 => format!("{}==", encoded),
-                    3 => format!("{}=", encoded),
-                    _ => encoded.to_string(),
-                };
-                base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &padded)
-            });
-
-            if let Ok(decoded) = decoded_result {
-                if let Ok(decoded_str) = String::from_utf8(decoded) {
-                    if let Some(colon_pos) = decoded_str.find(':') {
-                        let method = &decoded_str[..colon_pos];
-                        let password = &decoded_str[colon_pos + 1..];
-
-                        return Ok(Some(ProxyServer {
-                            name,
-                            protocol: "shadowsocks".to_string(),
-                            server,
-                            port,
-                            password: Some(password.to_string()),
-                            method: Some(method.to_string()),
-                            parameters: HashMap::new(),
-                        }));
-                    }
-                }
-            }
-        }
-
-        // Legacy format: base64(method:password@server:port)
-        if let Ok(decoded) =
-            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, main_part)
-        {
-            if let Ok(decoded_str) = String::from_utf8(decoded) {
-                if let Some(at_pos) = decoded_str.find('@') {
-                    let method_password = &decoded_str[..at_pos];
-                    let server_port = &decoded_str[at_pos + 1..];
-
-                    if let Some(colon_pos) = method_password.find(':') {
-                        let method = &method_password[..colon_pos];
-                        let password = &method_password[colon_pos + 1..];
-
-                        if let Some(colon_pos) = server_port.find(':') {
-                            let server = &server_port[..colon_pos];
-                            let port = server_port[colon_pos + 1..].parse::<u16>().unwrap_or(0);
-
-                            return Ok(Some(ProxyServer {
-                                name,
-                                protocol: "shadowsocks".to_string(),
-                                server: server.to_string(),
-                                port,
-                                password: Some(password.to_string()),
-                                method: Some(method.to_string()),
-                                parameters: HashMap::new(),
-                            }));
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(None)
     }
 }
 

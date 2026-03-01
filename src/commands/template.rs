@@ -1,7 +1,7 @@
 //! Template command module
 
 use crate::protocols::{clash, singbox, v2ray};
-use crate::utils::error::{ConvertError, Result};
+use crate::core::error::{ConvertError, Result};
 use tracing::info;
 
 /// Handle template generation command

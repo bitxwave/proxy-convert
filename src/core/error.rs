@@ -1,3 +1,5 @@
+//! Global error type and Result alias for the application.
+
 use thiserror::Error;
 
 #[derive(Error, Debug)]

@@ -1,7 +1,7 @@
 //! Sing-box template processor
 
 use crate::protocols::{ProtocolProcessor, ProxyServer};
-use crate::utils::error::Result;
+use crate::core::error::Result;
 use crate::utils::source::parser::Source;
 use crate::utils::template::interpolation_parser::InterpolationRule;
 use indexmap::IndexMap;
@@ -395,7 +395,7 @@ impl ProtocolProcessor for SingboxProcessor {
 
         // Parse template as JSON to properly handle selector outbounds
         let mut config: serde_json::Value = serde_json::from_str(template).map_err(|e| {
-            crate::utils::error::ConvertError::ConfigValidationError(format!(
+            crate::core::error::ConvertError::ConfigValidationError(format!(
                 "Failed to parse template as JSON: {}",
                 e
             ))
@@ -467,7 +467,7 @@ impl ProtocolProcessor for SingboxProcessor {
 
         // Serialize back to string
         serde_json::to_string_pretty(&config).map_err(|e| {
-            crate::utils::error::ConvertError::ConfigValidationError(format!(
+            crate::core::error::ConvertError::ConfigValidationError(format!(
                 "Failed to serialize config: {}",
                 e
             ))
@@ -477,7 +477,7 @@ impl ProtocolProcessor for SingboxProcessor {
     fn append_nodes(&self, template: &str, nodes: &[ProxyServer]) -> Result<String> {
         // Parse the template as JSON to safely manipulate it
         let mut config: serde_json::Value = serde_json::from_str(template).map_err(|e| {
-            crate::utils::error::ConvertError::ConfigValidationError(format!(
+            crate::core::error::ConvertError::ConfigValidationError(format!(
                 "Failed to parse template as JSON: {}",
                 e
             ))
@@ -496,7 +496,7 @@ impl ProtocolProcessor for SingboxProcessor {
 
         // Serialize back to JSON string
         serde_json::to_string_pretty(&config).map_err(|e| {
-            crate::utils::error::ConvertError::ConfigValidationError(format!(
+            crate::core::error::ConvertError::ConfigValidationError(format!(
                 "Failed to serialize config: {}",
                 e
             ))
@@ -577,7 +577,7 @@ impl ProtocolProcessor for SingboxProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commands::convert::{SourceMeta, SourceProtocol};
+    use crate::core::source::{SourceMeta, SourceProtocol};
     use crate::utils::source::parser::{Config, Source};
     use std::collections::HashMap;
     use crate::protocols::{clash, singbox};
@@ -612,6 +612,7 @@ mod tests {
 
         // Create singbox1 source with test nodes
         let singbox1_config = serde_json::json!({
+            "inbounds": [],
             "outbounds": [
                 {"tag": "SG-Node-01", "type": "shadowsocks", "server": "4.4.4.4", "server_port": 443, "method": "aes-256-gcm", "password": "test"},
                 {"tag": "CN-Node-01", "type": "shadowsocks", "server": "5.5.5.5", "server_port": 443, "method": "aes-256-gcm", "password": "test"},

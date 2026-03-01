@@ -302,29 +302,25 @@ export PROXY_CONVERT_DEFAULT_OUTPUT_FORMAT=v2ray
 ```tree
 src/
 ├── main.rs              # Entry point
-├── core/                # Core modules
-│   ├── error.rs         # Error handling
+├── core/                 # Domain and core
 │   ├── config.rs        # Config management
-│   ├── converter.rs     # Core converter
-│   ├── http_client.rs   # HTTP client
-│   ├── multi_input.rs   # Multi-input integration ✨
-│   └── output.rs        # Output management
+│   ├── error.rs         # Global error type
+│   ├── logging.rs       # Logging init
+│   └── source.rs        # SourceMeta, SourceProtocol (domain types)
 ├── protocols/           # Protocol modules
-│   ├── mod.rs           # Protocol registry
-│   ├── common/          # Common utilities
+│   ├── mod.rs           # Protocol registry, ProxyServer, ProtocolProcessor
 │   ├── clash/           # Clash protocol support
 │   ├── singbox/         # Sing-box protocol support
 │   └── v2ray/           # V2Ray protocol support
-├── commands/            # Command modules
+├── commands/            # CLI commands
 │   ├── cli.rs           # CLI definition
-│   ├── convert.rs       # Convert command ✨
-│   ├── validate.rs      # Validate command
+│   ├── convert.rs       # Convert command
+│   ├── validate.rs       # Validate command
 │   ├── template.rs      # Template command
 │   └── version.rs       # Version command
-└── utils/               # Utility modules
-    ├── file.rs          # File operations
-    ├── url.rs           # URL processing
-    └── template.rs      # Template processing ✨
+└── utils/               # Utilities
+    ├── source/          # Source loader and parser
+    └── template/        # Template interpolation and engine
 ```
 
 ## 🔧 Development
@@ -369,51 +365,45 @@ The project supports multi-source integration with unified interpolation rules:
 ### Add New Protocol Support
 
 1. Create a new protocol module under `src/protocols/`
-2. Implement the `ProtocolConverter` trait
-3. Register the new protocol in `init_protocol_registry()` in `src/main.rs`
+2. Implement the `ProtocolProcessor` trait for template processing
+3. Register the processor in `ProtocolRegistry::init()` in `src/protocols/mod.rs`:
+   `registry.register("format_name", Box::new(YourProcessor));`
+4. Add parsing/conversion in the registry for your format if needed (e.g. `parse_content`, subscription/plain)
 
 ### Example: Add New Protocol
 
 ```rust
 // src/protocols/new_protocol/mod.rs
-use crate::utils::error::Result;
-use crate::protocols::{ProtocolConverter, ProxyServer};
+use crate::core::error::Result;
+use crate::protocols::{ProtocolProcessor, ProxyServer};
+use crate::utils::template::interpolation_parser::InterpolationRule;
+use indexmap::IndexMap;
+use crate::utils::source::parser::Source;
 
-pub struct NewProtocolConverter;
+pub struct NewProtocolProcessor;
 
-impl ProtocolConverter for NewProtocolConverter {
-    fn name(&self) -> &str {
-        "new_protocol"
+impl ProtocolProcessor for NewProtocolProcessor {
+    fn process_rule(&self, _rule: &InterpolationRule, _sources: &IndexMap<String, Source>) -> Result<String> {
+        Ok(String::new())
     }
-
-    fn supported_input_formats(&self) -> &[&str] {
-        &["json", "yaml"]
+    fn get_nodes_for_rule(&self, rule: &InterpolationRule, sources: &IndexMap<String, Source>) -> Result<Vec<ProxyServer>> {
+        // ...
     }
-
-    fn supported_output_formats(&self) -> &[&str] {
-        &["singbox", "clash"]
+    fn set_default_values(&self, template: &str, nodes: &[ProxyServer]) -> Result<String> {
+        // ...
     }
-
-    fn detect_format(&self, content: &str) -> Result<Option<String>> {
-        // Implement format detection logic
-        Ok(None)
+    fn append_nodes(&self, template: &str, nodes: &[ProxyServer]) -> Result<String> {
+        // ...
     }
-
-    fn parse_input(&self, content: &str, format: &str) -> Result<Vec<ProxyServer>> {
-        // Implement input parsing logic
-        Ok(vec![])
-    }
-
-    fn generate_output(&self, servers: &[ProxyServer], format: &str, template: Option<&str>) -> Result<String> {
-        // Implement output generation logic
-        Ok("".to_string())
-    }
-
-    fn validate_output(&self, content: &str, format: &str) -> Result<bool> {
-        // Implement output validation logic
-        Ok(true)
+    fn create_node_config(&self, node: &ProxyServer) -> String {
+        // ...
     }
 }
+```
+
+Then in `ProtocolRegistry::init()`:
+```rust
+registry.register("new_protocol", Box::new(new_protocol::NewProtocolProcessor));
 ```
 
 ### Build and Test

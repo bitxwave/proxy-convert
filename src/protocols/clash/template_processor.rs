@@ -1,7 +1,7 @@
 //! Clash template processor
 
 use crate::protocols::{ProtocolProcessor, ProxyServer};
-use crate::utils::error::Result;
+use crate::core::error::Result;
 use crate::utils::source::parser::Source;
 use crate::utils::template::interpolation_parser::{InterpolationParser, InterpolationRule};
 use indexmap::IndexMap;
@@ -41,7 +41,7 @@ impl ProtocolProcessor for ClashProcessor {
     fn append_nodes(&self, template: &str, nodes: &[ProxyServer]) -> Result<String> {
         // Parse template as JSON to properly manipulate it
         let mut config: serde_json::Value = serde_json::from_str(template).map_err(|e| {
-            crate::utils::error::ConvertError::ConfigValidationError(format!(
+            crate::core::error::ConvertError::ConfigValidationError(format!(
                 "Failed to parse template as JSON: {}",
                 e
             ))
@@ -59,7 +59,7 @@ impl ProtocolProcessor for ClashProcessor {
 
         // Serialize back to JSON string
         serde_json::to_string_pretty(&config).map_err(|e| {
-            crate::utils::error::ConvertError::ConfigValidationError(format!(
+            crate::core::error::ConvertError::ConfigValidationError(format!(
                 "Failed to serialize config: {}",
                 e
             ))
@@ -374,7 +374,7 @@ impl ClashProcessor {
         sources: &IndexMap<String, Source>,
     ) -> Result<String> {
         let mut config: serde_json::Value = serde_json::from_str(template).map_err(|e| {
-            crate::utils::error::ConvertError::ConfigValidationError(format!(
+            crate::core::error::ConvertError::ConfigValidationError(format!(
                 "Failed to parse template as JSON: {}",
                 e
             ))
@@ -394,7 +394,7 @@ impl ClashProcessor {
         }
 
         serde_json::to_string_pretty(&config).map_err(|e| {
-            crate::utils::error::ConvertError::ConfigValidationError(format!(
+            crate::core::error::ConvertError::ConfigValidationError(format!(
                 "Failed to serialize config: {}",
                 e
             ))

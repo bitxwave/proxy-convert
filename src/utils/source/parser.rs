@@ -1,8 +1,8 @@
 //! Source configuration parser
 
-use crate::commands::convert::SourceMeta;
+use crate::core::source::SourceMeta;
+use crate::core::error::Result;
 use crate::protocols::{clash, singbox, v2ray, ProxyServer};
-use crate::utils::error::Result;
 use std::collections::HashMap;
 
 /// Configuration for different protocols (strongly typed)
