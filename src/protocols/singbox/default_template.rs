@@ -35,10 +35,7 @@ pub fn generate() -> String {
                 "mtu": 9000,
                 "stack": "mixed",
                 "auto_route": true,
-                "strict_route": true,
-                "sniff": true,
-                "sniff_override_destination": true,
-                "endpoint_independent_nat": true
+                "strict_route": true
             }
         ],
         "outbounds": [
