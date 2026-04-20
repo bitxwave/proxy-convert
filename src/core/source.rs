@@ -18,20 +18,23 @@ pub struct SourceMeta {
     pub flag: Option<String>,
 }
 
-/// Supported source (subscription) protocol types.
-#[derive(Debug, Clone)]
-pub enum SourceProtocol {
+/// Supported protocol types (unified: source + output).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Protocol {
     Clash,
     SingBox,
     V2Ray,
 }
 
-impl SourceProtocol {
+/// Backward-compatible alias.
+pub type SourceProtocol = Protocol;
+
+impl Protocol {
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
-            "clash" => Some(SourceProtocol::Clash),
-            "sing-box" | "singbox" => Some(SourceProtocol::SingBox),
-            "v2ray" => Some(SourceProtocol::V2Ray),
+            "clash" => Some(Protocol::Clash),
+            "sing-box" | "singbox" => Some(Protocol::SingBox),
+            "v2ray" => Some(Protocol::V2Ray),
             _ => None,
         }
     }
@@ -39,9 +42,27 @@ impl SourceProtocol {
     /// Format name for registry/parsing (e.g. "clash", "singbox", "v2ray").
     pub fn as_format_str(&self) -> &'static str {
         match self {
-            SourceProtocol::Clash => "clash",
-            SourceProtocol::SingBox => "singbox",
-            SourceProtocol::V2Ray => "v2ray",
+            Protocol::Clash => "clash",
+            Protocol::SingBox => "singbox",
+            Protocol::V2Ray => "v2ray",
+        }
+    }
+
+    /// Get the default output format string for this protocol.
+    pub fn default_output_format(&self) -> &'static str {
+        match self {
+            Protocol::SingBox => "json",
+            Protocol::Clash => "yaml",
+            Protocol::V2Ray => "json",
+        }
+    }
+
+    /// Get the default filename for this protocol.
+    pub fn default_filename(&self) -> &'static str {
+        match self {
+            Protocol::SingBox => "config.json",
+            Protocol::Clash => "config.yaml",
+            Protocol::V2Ray => "config.json",
         }
     }
 }

@@ -1,3 +1,4 @@
+pub mod common;
 pub mod http;
 pub mod shadowsocks;
 pub mod shadowsocks_r;

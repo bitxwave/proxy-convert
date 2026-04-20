@@ -3,6 +3,7 @@
 pub mod common;
 pub mod default_template;
 pub mod dns;
+pub mod format;
 pub mod experimental;
 pub mod inbound;
 pub mod log;

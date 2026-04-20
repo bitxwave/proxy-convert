@@ -2,48 +2,13 @@
 
 use crate::commands::cli;
 use crate::core::error::{ConvertError, Result};
-use crate::core::source::{SourceMeta, SourceProtocol};
+use crate::core::source::{Protocol, SourceMeta};
 use crate::protocols;
 use crate::protocols::ProtocolRegistry;
-use crate::protocols::singbox;
 use crate::utils::{source, template::template_engine};
 
-/// Output protocol type
-#[derive(Debug, Clone)]
-pub enum OutputProtocol {
-    SingBox,
-    Clash,
-    V2Ray,
-}
-
-impl OutputProtocol {
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s.to_lowercase().as_str() {
-            "sing-box" | "singbox" => Some(OutputProtocol::SingBox),
-            "clash" => Some(OutputProtocol::Clash),
-            "v2ray" => Some(OutputProtocol::V2Ray),
-            _ => None,
-        }
-    }
-
-    /// Get the default output format for this protocol
-    pub fn default_format(&self) -> cli::OutputFormat {
-        match self {
-            OutputProtocol::SingBox => cli::OutputFormat::Json,
-            OutputProtocol::Clash => cli::OutputFormat::Yaml,
-            OutputProtocol::V2Ray => cli::OutputFormat::Json,
-        }
-    }
-
-    /// Get the default filename for this protocol
-    pub fn default_filename(&self) -> &'static str {
-        match self {
-            OutputProtocol::SingBox => "config.json",
-            OutputProtocol::Clash => "config.yaml",
-            OutputProtocol::V2Ray => "config.json",
-        }
-    }
-}
+/// Backward-compatible alias so `use crate::commands::convert::OutputProtocol` still works.
+pub type OutputProtocol = Protocol;
 
 /// Convert command handler
 pub struct ConvertCommand;
@@ -53,7 +18,7 @@ impl ConvertCommand {
     pub async fn start_convert(
         sources: &[SourceMeta],
         _input_format: Option<&str>,
-        output_protocol: &OutputProtocol,
+        output_protocol: &Protocol,
         output: Option<&str>,
         template: Option<&str>,
         registry: &ProtocolRegistry,
@@ -90,7 +55,10 @@ impl ConvertCommand {
         };
 
         // Get output format and filename based on protocol
-        let output_format = output_protocol.default_format();
+        let output_format = match output_protocol.default_output_format() {
+            "yaml" => cli::OutputFormat::Yaml,
+            _ => cli::OutputFormat::Json,
+        };
         let formatted_result = Self::format_output(&result, &output_format)?;
         // output result
         let output_path = Self::resolve_output_path(output, output_protocol)?;
@@ -110,7 +78,7 @@ impl ConvertCommand {
     /// Resolve output path, handling directory case
     fn resolve_output_path(
         output: Option<&str>,
-        output_protocol: &OutputProtocol,
+        output_protocol: &Protocol,
     ) -> Result<String> {
         use std::path::Path;
 
@@ -169,7 +137,7 @@ impl ConvertCommand {
                 "Query must include type param. Example: url?type=clash&name=my&flag=clash".to_string(),
             )
         })?;
-        let source_type = SourceProtocol::from_str(&source_type_str).ok_or_else(|| {
+        let source_type = Protocol::from_str(&source_type_str).ok_or_else(|| {
             ConvertError::ConfigValidationError(format!(
                 "Unsupported type: {}, supported: clash, sing-box(singbox), v2ray",
                 source_type_str
@@ -188,15 +156,19 @@ impl ConvertCommand {
     /// generate default config template based on output protocol
     fn generate_default_config(
         template_engine: &template_engine::TemplateEngine,
-        output_protocol: &OutputProtocol,
+        output_protocol: &Protocol,
         registry: &ProtocolRegistry,
     ) -> Result<String> {
-        // Get default template from the protocol module based on output protocol
-        let template_str = match output_protocol {
-            OutputProtocol::SingBox => singbox::generate_default_template(),
-            OutputProtocol::Clash => protocols::clash::generate_default_template(),
-            OutputProtocol::V2Ray => protocols::v2ray::generate_default_template(),
-        };
+        // Look up the format descriptor via the registry
+        let format = registry
+            .get_format(output_protocol.as_format_str())
+            .ok_or_else(|| {
+                ConvertError::ConfigValidationError(format!(
+                    "No format registered for protocol: {}",
+                    output_protocol.as_format_str()
+                ))
+            })?;
+        let template_str = format.default_template();
 
         // Process template to replace interpolation rules like {{ALL-TAG}}
         template_engine.process_template(&template_str, registry)
@@ -262,7 +234,7 @@ pub async fn handle_convert(
         .map(|s| s.as_str())
         .unwrap_or_else(|| config.output_protocol.as_str());
 
-    let output_protocol = OutputProtocol::from_str(output_protocol_str).ok_or_else(|| {
+    let output_protocol = Protocol::from_str(output_protocol_str).ok_or_else(|| {
         ConvertError::ConfigValidationError(format!(
             "Unsupported output protocol: {}, supported protocols: sing-box(singbox), clash, v2ray",
             output_protocol_str
@@ -308,9 +280,9 @@ pub async fn handle_convert(
     tracing::info!("Output protocol: {}", output_protocol_str);
     tracing::info!(
         "Output format: {}",
-        match output_protocol.default_format() {
-            cli::OutputFormat::Json => "JSON",
-            cli::OutputFormat::Yaml => "YAML",
+        match output_protocol.default_output_format() {
+            "yaml" => "YAML",
+            _ => "JSON",
         }
     );
     tracing::info!("Using timeout: {} seconds", config.timeout_seconds);
@@ -340,7 +312,7 @@ mod tests {
         // Path + type only; source keeps full string (all params)
         let m = ConvertCommand::parse_source_string("./config.yaml?type=clash").unwrap();
         assert_eq!(m.name, None);
-        assert!(matches!(m.source_type, SourceProtocol::Clash));
+        assert!(matches!(m.source_type, Protocol::Clash));
         assert_eq!(m.source, "./config.yaml?type=clash");
         assert_eq!(m.flag, None);
 
@@ -350,7 +322,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(m.name.as_deref(), Some("my"));
-        assert!(matches!(m.source_type, SourceProtocol::SingBox));
+        assert!(matches!(m.source_type, Protocol::SingBox));
         assert_eq!(
             m.source,
             "https://example.com/sub?type=singbox&name=my&flag=sing-box"
@@ -361,7 +333,7 @@ mod tests {
         let m = ConvertCommand::parse_source_string("examples/sources/Eternal Network?type=singbox")
             .unwrap();
         assert_eq!(m.name, None);
-        assert!(matches!(m.source_type, SourceProtocol::SingBox));
+        assert!(matches!(m.source_type, Protocol::SingBox));
         assert_eq!(m.source, "examples/sources/Eternal Network?type=singbox");
 
         // Empty name filtered out; source keeps full string including other params

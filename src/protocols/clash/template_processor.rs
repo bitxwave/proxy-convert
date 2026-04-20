@@ -1,9 +1,10 @@
 //! Clash template processor
 
 use crate::protocols::{ProtocolProcessor, ProxyServer};
+use crate::protocols::shared_resolver::SharedNodeResolver;
 use crate::core::error::Result;
 use crate::utils::source::parser::Source;
-use crate::utils::template::interpolation_parser::{InterpolationParser, InterpolationRule};
+use crate::utils::template::interpolation_parser::InterpolationRule;
 use indexmap::IndexMap;
 use serde_json;
 
@@ -16,9 +17,7 @@ impl ProtocolProcessor for ClashProcessor {
         rule: &InterpolationRule,
         sources: &IndexMap<String, Source>,
     ) -> Result<String> {
-        // Clash uses the same rule processing logic as Sing-box
-        let processor = crate::protocols::singbox::template_processor::SingboxProcessor;
-        processor.process_rule(rule, sources)
+        SharedNodeResolver::process_rule(rule, sources)
     }
 
     fn get_nodes_for_rule(
@@ -26,9 +25,7 @@ impl ProtocolProcessor for ClashProcessor {
         rule: &InterpolationRule,
         sources: &IndexMap<String, Source>,
     ) -> Result<Vec<ProxyServer>> {
-        // Clash uses the same node extraction logic as Sing-box
-        let processor = crate::protocols::singbox::template_processor::SingboxProcessor;
-        processor.get_nodes_for_rule(rule, sources)
+        SharedNodeResolver::get_nodes_for_rule(rule, sources)
     }
 
     fn set_default_values(&self, template: &str, nodes: &[ProxyServer]) -> Result<String> {
@@ -137,7 +134,11 @@ impl ProtocolProcessor for ClashProcessor {
             }
         }
 
-        serde_json::to_string_pretty(&serde_json::Value::Object(config)).unwrap()
+        serde_json::to_string_pretty(&serde_json::Value::Object(config))
+            .unwrap_or_else(|e| {
+                tracing::error!("Failed to serialize clash node config: {}", e);
+                "{}".to_string()
+            })
     }
 }
 
@@ -175,22 +176,15 @@ impl ClashProcessor {
         // UDP support - Clash needs explicit setting
         config.insert("udp".to_string(), serde_json::Value::Bool(true));
 
-        // TLS handling
+        // TLS handling — VMess uses "servername" (not "sni") and needs tls: true boolean
         if let Some(tls) = params.get("tls") {
             if let Some(tls_obj) = tls.as_object() {
-                if tls_obj
-                    .get("enabled")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false)
-                {
+                if tls_obj.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false) {
                     config.insert("tls".to_string(), serde_json::Value::Bool(true));
-
-                    // server_name → servername
+                    // VMess Clash uses "servername" instead of "sni"
                     if let Some(server_name) = tls_obj.get("server_name") {
                         config.insert("servername".to_string(), server_name.clone());
                     }
-
-                    // insecure → skip-cert-verify
                     if let Some(insecure) = tls_obj.get("insecure") {
                         config.insert("skip-cert-verify".to_string(), insecure.clone());
                     }
@@ -200,90 +194,9 @@ impl ClashProcessor {
             }
         }
 
-        // Transport handling
+        // Transport handling — delegate to shared converter
         if let Some(transport) = params.get("transport") {
-            if let Some(transport_obj) = transport.as_object() {
-                if let Some(transport_type) = transport_obj.get("type").and_then(|v| v.as_str()) {
-                    config.insert(
-                        "network".to_string(),
-                        serde_json::Value::String(transport_type.to_string()),
-                    );
-
-                    match transport_type {
-                        "ws" => {
-                            let mut ws_opts = serde_json::Map::new();
-                            if let Some(path) = transport_obj.get("path") {
-                                ws_opts.insert("path".to_string(), path.clone());
-                            }
-                            if let Some(headers) = transport_obj.get("headers") {
-                                ws_opts.insert("headers".to_string(), headers.clone());
-                            }
-                            if let Some(early_data) = transport_obj.get("max_early_data") {
-                                ws_opts.insert("max-early-data".to_string(), early_data.clone());
-                            }
-                            if let Some(header_name) = transport_obj.get("early_data_header_name") {
-                                ws_opts.insert(
-                                    "early-data-header-name".to_string(),
-                                    header_name.clone(),
-                                );
-                            }
-                            if !ws_opts.is_empty() {
-                                config.insert(
-                                    "ws-opts".to_string(),
-                                    serde_json::Value::Object(ws_opts),
-                                );
-                            }
-                        }
-                        "grpc" => {
-                            let mut grpc_opts = serde_json::Map::new();
-                            if let Some(service_name) = transport_obj.get("service_name") {
-                                grpc_opts
-                                    .insert("grpc-service-name".to_string(), service_name.clone());
-                            }
-                            if !grpc_opts.is_empty() {
-                                config.insert(
-                                    "grpc-opts".to_string(),
-                                    serde_json::Value::Object(grpc_opts),
-                                );
-                            }
-                        }
-                        "h2" => {
-                            let mut h2_opts = serde_json::Map::new();
-                            if let Some(host) = transport_obj.get("host") {
-                                h2_opts.insert("host".to_string(), host.clone());
-                            }
-                            if let Some(path) = transport_obj.get("path") {
-                                h2_opts.insert("path".to_string(), path.clone());
-                            }
-                            if !h2_opts.is_empty() {
-                                config.insert(
-                                    "h2-opts".to_string(),
-                                    serde_json::Value::Object(h2_opts),
-                                );
-                            }
-                        }
-                        "http" => {
-                            let mut http_opts = serde_json::Map::new();
-                            if let Some(method) = transport_obj.get("method") {
-                                http_opts.insert("method".to_string(), method.clone());
-                            }
-                            if let Some(path) = transport_obj.get("path") {
-                                http_opts.insert("path".to_string(), path.clone());
-                            }
-                            if let Some(headers) = transport_obj.get("headers") {
-                                http_opts.insert("headers".to_string(), headers.clone());
-                            }
-                            if !http_opts.is_empty() {
-                                config.insert(
-                                    "http-opts".to_string(),
-                                    serde_json::Value::Object(http_opts),
-                                );
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
+            crate::protocols::transport_converter::singbox_transport_to_clash(config, transport);
         }
     }
 
@@ -306,146 +219,15 @@ impl ClashProcessor {
         // UDP support
         config.insert("udp".to_string(), serde_json::Value::Bool(true));
 
-        // TLS handling - Trojan typically always uses TLS
+        // TLS handling — delegate to shared converter
         if let Some(tls) = params.get("tls") {
-            if let Some(tls_obj) = tls.as_object() {
-                if let Some(server_name) = tls_obj.get("server_name") {
-                    config.insert("sni".to_string(), server_name.clone());
-                }
-                if let Some(insecure) = tls_obj.get("insecure") {
-                    config.insert("skip-cert-verify".to_string(), insecure.clone());
-                }
-                if let Some(alpn) = tls_obj.get("alpn") {
-                    config.insert("alpn".to_string(), alpn.clone());
-                }
-            }
+            crate::protocols::transport_converter::singbox_tls_to_clash(config, tls);
         }
 
-        // Transport handling
+        // Transport handling — delegate to shared converter
         if let Some(transport) = params.get("transport") {
-            if let Some(transport_obj) = transport.as_object() {
-                if let Some(transport_type) = transport_obj.get("type").and_then(|v| v.as_str()) {
-                    config.insert(
-                        "network".to_string(),
-                        serde_json::Value::String(transport_type.to_string()),
-                    );
-
-                    match transport_type {
-                        "ws" => {
-                            let mut ws_opts = serde_json::Map::new();
-                            if let Some(path) = transport_obj.get("path") {
-                                ws_opts.insert("path".to_string(), path.clone());
-                            }
-                            if let Some(headers) = transport_obj.get("headers") {
-                                ws_opts.insert("headers".to_string(), headers.clone());
-                            }
-                            if !ws_opts.is_empty() {
-                                config.insert(
-                                    "ws-opts".to_string(),
-                                    serde_json::Value::Object(ws_opts),
-                                );
-                            }
-                        }
-                        "grpc" => {
-                            let mut grpc_opts = serde_json::Map::new();
-                            if let Some(service_name) = transport_obj.get("service_name") {
-                                grpc_opts
-                                    .insert("grpc-service-name".to_string(), service_name.clone());
-                            }
-                            if !grpc_opts.is_empty() {
-                                config.insert(
-                                    "grpc-opts".to_string(),
-                                    serde_json::Value::Object(grpc_opts),
-                                );
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
+            crate::protocols::transport_converter::singbox_transport_to_clash(config, transport);
         }
     }
 
-    /// Process proxy-groups interpolation
-    /// This method processes each proxy-group's proxies field for interpolation expressions
-    pub fn process_proxy_groups(
-        &self,
-        template: &str,
-        sources: &IndexMap<String, Source>,
-    ) -> Result<String> {
-        let mut config: serde_json::Value = serde_json::from_str(template).map_err(|e| {
-            crate::core::error::ConvertError::ConfigValidationError(format!(
-                "Failed to parse template as JSON: {}",
-                e
-            ))
-        })?;
-
-        if let Some(proxy_groups) = config
-            .get_mut("proxy-groups")
-            .and_then(|v| v.as_array_mut())
-        {
-            for group in proxy_groups.iter_mut() {
-                if let Some(group_obj) = group.as_object_mut() {
-                    if let Some(proxies) = group_obj.get_mut("proxies") {
-                        self.process_proxies_field(proxies, sources)?;
-                    }
-                }
-            }
-        }
-
-        serde_json::to_string_pretty(&config).map_err(|e| {
-            crate::core::error::ConvertError::ConfigValidationError(format!(
-                "Failed to serialize config: {}",
-                e
-            ))
-        })
-    }
-
-    /// Process a proxies field (can be array or string with interpolation)
-    fn process_proxies_field(
-        &self,
-        proxies: &mut serde_json::Value,
-        sources: &IndexMap<String, Source>,
-    ) -> Result<()> {
-        match proxies {
-            serde_json::Value::Array(arr) => {
-                let mut new_arr = Vec::new();
-                for item in arr.iter() {
-                    if let Some(s) = item.as_str() {
-                        if s.starts_with("{{") && s.ends_with("}}") {
-                            // Parse and process interpolation
-                            if let Ok(rule) = InterpolationParser::parse(s) {
-                                let nodes = self.get_nodes_for_rule(&rule, sources)?;
-                                for node in nodes {
-                                    new_arr.push(serde_json::Value::String(node.name));
-                                }
-                            } else {
-                                new_arr.push(item.clone());
-                            }
-                        } else {
-                            new_arr.push(item.clone());
-                        }
-                    } else {
-                        new_arr.push(item.clone());
-                    }
-                }
-                *proxies = serde_json::Value::Array(new_arr);
-            }
-            serde_json::Value::String(s) => {
-                if s.starts_with("{{") && s.ends_with("}}") {
-                    // Parse and process interpolation
-                    if let Ok(rule) = InterpolationParser::parse(s) {
-                        let nodes = self.get_nodes_for_rule(&rule, sources)?;
-                        let names: Vec<serde_json::Value> = nodes
-                            .iter()
-                            .map(|n| serde_json::Value::String(n.name.clone()))
-                            .collect();
-                        *proxies = serde_json::Value::Array(names);
-                    }
-                }
-            }
-            _ => {}
-        }
-        Ok(())
-    }
 }

@@ -1,8 +1,8 @@
 //! Integration tests: full convert/validate flow with file-based sources.
 
-use proxy_convert::commands::convert::{ConvertCommand, OutputProtocol};
+use proxy_convert::commands::convert::ConvertCommand;
 use proxy_convert::core::config::AppConfig;
-use proxy_convert::core::source::SourceProtocol;
+use proxy_convert::core::source::Protocol;
 use proxy_convert::protocols::ProtocolRegistry;
 use tempfile::NamedTempFile;
 
@@ -39,7 +39,7 @@ async fn integration_convert_file_source_singbox_to_json() {
 
     let source_str = format!("{}?type=singbox", path);
     let source_meta = ConvertCommand::parse_source_string(&source_str).unwrap();
-    assert!(matches!(source_meta.source_type, SourceProtocol::SingBox));
+    assert!(matches!(source_meta.source_type, Protocol::SingBox));
 
     let source = proxy_convert::utils::source::SourceLoader::load_source(
         &source_meta,
@@ -58,7 +58,7 @@ async fn integration_convert_file_source_singbox_to_json() {
     let result = ConvertCommand::start_convert(
         &[source_meta],
         None,
-        &OutputProtocol::SingBox,
+        &Protocol::SingBox,
         Some(output_path.to_str().unwrap()),
         None,
         &registry,
@@ -90,7 +90,7 @@ async fn integration_convert_file_source_clash_to_singbox() {
     let result = ConvertCommand::start_convert(
         &[source_meta],
         None,
-        &OutputProtocol::SingBox,
+        &Protocol::SingBox,
         Some(output_path.to_str().unwrap()),
         None,
         &registry,

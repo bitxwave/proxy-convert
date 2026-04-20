@@ -2,6 +2,7 @@
 
 pub mod default_template;
 pub mod dns;
+pub mod format;
 pub mod proxy;
 pub mod proxy_group;
 pub mod template_processor;
