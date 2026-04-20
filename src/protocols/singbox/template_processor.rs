@@ -78,7 +78,8 @@ impl SingboxProcessor {
         serde_json::to_string(&names).unwrap_or_else(|_| "[]".to_string())
     }
 
-    /// Convert Clash VMess parameters to Sing-box format
+    /// Convert VMess parameters to Sing-box format
+    /// Handles both Clash-style flat params and Sing-box-style nested objects
     pub fn convert_vmess_params_to_singbox(
         config: &mut serde_json::Map<String, serde_json::Value>,
         params: &std::collections::HashMap<String, serde_json::Value>,
@@ -102,31 +103,44 @@ impl SingboxProcessor {
             }
         }
 
+        // TLS handling — detect sing-box style nested tls object vs Clash-style boolean
+        if let Some(tls) = params.get("tls") {
+            if let Some(tls_obj) = tls.as_object() {
+                // Sing-box style: tls is already a full object, pass through
+                let mut tls_config = tls_obj.clone();
+                tls_config
+                    .entry("enabled".to_string())
+                    .or_insert(serde_json::Value::Bool(true));
+                config.insert("tls".to_string(), serde_json::Value::Object(tls_config));
+            } else if tls.as_bool().unwrap_or(false) {
+                // Clash style: tls is a boolean, build from flat params
+                let mut tls_config = serde_json::Map::new();
+                tls_config.insert("enabled".to_string(), serde_json::Value::Bool(true));
 
-        // TLS handling
-        let tls_enabled = params
-            .get("tls")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+                if let Some(servername) = params.get("servername").or(params.get("sni")) {
+                    tls_config.insert("server_name".to_string(), servername.clone());
+                }
 
-        if tls_enabled {
-            let mut tls_config = serde_json::Map::new();
-            tls_config.insert("enabled".to_string(), serde_json::Value::Bool(true));
+                if let Some(skip) = params.get("skip-cert-verify") {
+                    tls_config.insert("insecure".to_string(), skip.clone());
+                }
 
-            // servername → server_name
-            if let Some(servername) = params.get("servername").or(params.get("sni")) {
-                tls_config.insert("server_name".to_string(), servername.clone());
+                config.insert("tls".to_string(), serde_json::Value::Object(tls_config));
             }
-
-            // skip-cert-verify → insecure
-            if let Some(skip) = params.get("skip-cert-verify") {
-                tls_config.insert("insecure".to_string(), skip.clone());
-            }
-
-            config.insert("tls".to_string(), serde_json::Value::Object(tls_config));
         }
 
-        // Transport handling (ws, grpc, h2, http)
+        // Transport handling — detect sing-box style nested transport object first
+        if let Some(transport) = params.get("transport") {
+            if let Some(transport_obj) = transport.as_object() {
+                config.insert(
+                    "transport".to_string(),
+                    serde_json::Value::Object(transport_obj.clone()),
+                );
+                return;
+            }
+        }
+
+        // Clash-style transport from "network" + opts
         if let Some(network) = params.get("network").and_then(|v| v.as_str()) {
             let mut transport = serde_json::Map::new();
             transport.insert(
@@ -194,30 +208,42 @@ impl SingboxProcessor {
         }
     }
 
-    /// Convert Clash Trojan parameters to Sing-box format
+    /// Convert Trojan parameters to Sing-box format
+    /// Handles both Clash-style flat params (sni, skip-cert-verify) and
+    /// Sing-box-style nested objects (tls: {enabled, server_name, insecure})
     pub fn convert_trojan_params_to_singbox(
         config: &mut serde_json::Map<String, serde_json::Value>,
         params: &std::collections::HashMap<String, serde_json::Value>,
     ) {
-        // TLS is typically enabled by default for Trojan
-        let mut tls_config = serde_json::Map::new();
-        tls_config.insert("enabled".to_string(), serde_json::Value::Bool(true));
-
-        if let Some(sni) = params.get("sni").or(params.get("servername")) {
-            tls_config.insert("server_name".to_string(), sni.clone());
+        // Check if params already contain a sing-box style tls object
+        if let Some(tls) = params.get("tls") {
+            if let Some(tls_obj) = tls.as_object() {
+                let mut tls_config = tls_obj.clone();
+                tls_config
+                    .entry("enabled".to_string())
+                    .or_insert(serde_json::Value::Bool(true));
+                config.insert("tls".to_string(), serde_json::Value::Object(tls_config));
+            } else {
+                // tls is a boolean or other non-object — build from flat params
+                Self::build_trojan_tls_from_flat_params(config, params);
+            }
+        } else {
+            // No tls key — build from Clash-style flat params
+            Self::build_trojan_tls_from_flat_params(config, params);
         }
 
-        if let Some(skip) = params.get("skip-cert-verify") {
-            tls_config.insert("insecure".to_string(), skip.clone());
+        // Check if params already contain a sing-box style transport object
+        if let Some(transport) = params.get("transport") {
+            if let Some(transport_obj) = transport.as_object() {
+                config.insert(
+                    "transport".to_string(),
+                    serde_json::Value::Object(transport_obj.clone()),
+                );
+                return;
+            }
         }
 
-        if let Some(alpn) = params.get("alpn") {
-            tls_config.insert("alpn".to_string(), alpn.clone());
-        }
-
-        config.insert("tls".to_string(), serde_json::Value::Object(tls_config));
-
-        // Transport handling
+        // Clash-style transport from "network" + opts
         if let Some(network) = params.get("network").and_then(|v| v.as_str()) {
             let mut transport = serde_json::Map::new();
             transport.insert(
@@ -253,6 +279,28 @@ impl SingboxProcessor {
                 );
             }
         }
+    }
+
+    fn build_trojan_tls_from_flat_params(
+        config: &mut serde_json::Map<String, serde_json::Value>,
+        params: &std::collections::HashMap<String, serde_json::Value>,
+    ) {
+        let mut tls_config = serde_json::Map::new();
+        tls_config.insert("enabled".to_string(), serde_json::Value::Bool(true));
+
+        if let Some(sni) = params.get("sni").or(params.get("servername")) {
+            tls_config.insert("server_name".to_string(), sni.clone());
+        }
+
+        if let Some(skip) = params.get("skip-cert-verify") {
+            tls_config.insert("insecure".to_string(), skip.clone());
+        }
+
+        if let Some(alpn) = params.get("alpn") {
+            tls_config.insert("alpn".to_string(), alpn.clone());
+        }
+
+        config.insert("tls".to_string(), serde_json::Value::Object(tls_config));
     }
 }
 
