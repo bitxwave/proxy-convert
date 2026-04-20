@@ -49,22 +49,27 @@ pub struct ExternalAccount {
 #[skip_serializing_none]
 #[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Ech {
-    enabled: Option<bool>,
-    pq_signature_schemes_enabled: Option<bool>,
-    dynamic_record_sizing_disabled: Option<bool>,
-    key: Option<Vec<String>>,
-    key_path: Option<String>,
+    pub enabled: Option<bool>,
+    pub config: Option<SingleOrMultipleValue<String>>,
+    pub config_path: Option<String>,
+    pub query_server_name: Option<String>,
+    // deprecated fields kept for backwards compat
+    pub pq_signature_schemes_enabled: Option<bool>,
+    pub dynamic_record_sizing_disabled: Option<bool>,
+    pub key: Option<Vec<String>>,
+    pub key_path: Option<String>,
 }
 
 #[skip_serializing_none]
 #[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct Reality {
-    enabled: Option<bool>,
-    handshake: Option<RealityHandshake>,
-    public_key: Option<String>,
-    private_key: Option<String>,
-    short_id: Option<SingleOrMultipleValue<String>>,
-    max_time_difference: Option<String>,
+    pub enabled: Option<bool>,
+    pub public_key: Option<String>,
+    pub short_id: Option<SingleOrMultipleValue<String>>,
+    // server-side fields
+    pub handshake: Option<RealityHandshake>,
+    pub private_key: Option<String>,
+    pub max_time_difference: Option<String>,
 }
 
 #[skip_serializing_none]
@@ -123,14 +128,36 @@ pub struct Inbound {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Outbound {
     pub enabled: Option<bool>,
-    pub insecure: Option<bool>,
+    pub engine: Option<String>,
+    pub disable_sni: Option<bool>,
     pub server_name: Option<String>,
-    pub certificate: Option<SingleOrMultipleValue<String>>,
-    pub fingerprint: Option<TlsFingerprint>,
+    pub insecure: Option<bool>,
     pub alpn: Option<Vec<String>>,
     pub alpn_mode: Option<AlpnMode>,
     pub min_version: Option<String>,
     pub max_version: Option<String>,
+    pub cipher_suites: Option<Vec<String>>,
+    pub curve_preferences: Option<Vec<String>>,
+    pub certificate: Option<SingleOrMultipleValue<String>>,
+    pub certificate_path: Option<String>,
+    pub certificate_public_key_sha256: Option<Vec<String>>,
+    pub client_certificate: Option<SingleOrMultipleValue<String>>,
+    pub client_certificate_path: Option<String>,
+    pub client_key: Option<SingleOrMultipleValue<String>>,
+    pub client_key_path: Option<String>,
+    pub fragment: Option<bool>,
+    pub fragment_fallback_delay: Option<String>,
+    pub record_fragment: Option<bool>,
+    pub spoof: Option<String>,
+    pub spoof_method: Option<String>,
+    pub kernel_tx: Option<bool>,
+    pub kernel_rx: Option<bool>,
+    pub handshake_timeout: Option<String>,
+    pub ech: Option<Ech>,
+    pub utls: Option<Utls>,
+    pub reality: Option<Reality>,
+    // deprecated fields kept for backwards compatibility during deserialization
+    pub fingerprint: Option<TlsFingerprint>,
     pub session_ticket: Option<bool>,
     pub curves: Option<Vec<String>>,
     pub signature_algorithms: Option<String>,
@@ -140,7 +167,13 @@ pub struct Outbound {
     pub early_data_size: Option<u32>,
     pub session_cache_size: Option<u32>,
     pub session_cache_timeout: Option<u64>,
-    pub client_certificate: Option<ClientCertificateConfig>,
+}
+
+#[skip_serializing_none]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
+pub struct Utls {
+    pub enabled: Option<bool>,
+    pub fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -163,10 +196,3 @@ pub enum AlpnMode {
     Strict,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ClientCertificateConfig {
-    pub certificate_path: Option<String>,
-    pub key_path: Option<String>,
-    pub password: Option<String>,
-    pub ocsp_stapling: Option<u64>,
-}
