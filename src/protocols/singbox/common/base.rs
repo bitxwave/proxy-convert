@@ -103,6 +103,12 @@ pub struct ListenParams {
     udp_fragment: Option<bool>,
     udp_timeout: Option<String>,
     detour: Option<String>,
+    // deprecated since 1.11.0 — kept for backward-compat deserialization of old configs
+    sniff: Option<bool>,
+    sniff_override_destination: Option<bool>,
+    sniff_timeout: Option<String>,
+    domain_strategy: Option<Strategy>,
+    udp_disable_domain_unmapping: Option<bool>,
 }
 
 #[skip_serializing_none]
