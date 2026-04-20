@@ -1,6 +1,5 @@
 //! Template command module
 
-use crate::protocols::{clash, singbox, v2ray};
 use crate::core::error::{ConvertError, Result};
 use tracing::info;
 
@@ -8,7 +7,7 @@ use tracing::info;
 pub async fn handle_template(
     template_cmd: &crate::commands::cli::Commands,
     _config: &crate::core::config::AppConfig,
-    _registry: &crate::protocols::ProtocolRegistry,
+    registry: &crate::protocols::ProtocolRegistry,
 ) -> Result<()> {
     // Extract Template command args
     let (output, protocol) = match template_cmd {
@@ -20,31 +19,18 @@ pub async fn handle_template(
         }
     };
 
-    // Resolve protocol and template content
+    // Resolve protocol via registry
     let protocol_lower = protocol.to_lowercase();
-    let (protocol_name, default_ext, template_content) = match protocol_lower.as_str() {
-        "singbox" | "sing-box" => (
-            singbox::PROTOCOL_NAME,
-            singbox::CONFIG_EXT,
-            singbox::generate_default_template(),
-        ),
-        "clash" => (
-            clash::PROTOCOL_NAME,
-            clash::CONFIG_EXT,
-            clash::generate_default_template(),
-        ),
-        "v2ray" => (
-            v2ray::PROTOCOL_NAME,
-            v2ray::CONFIG_EXT,
-            v2ray::generate_default_template(),
-        ),
-        _ => {
-            return Err(ConvertError::ConfigValidationError(format!(
-                "Unsupported protocol: {}. Supported: singbox, clash, v2ray",
-                protocol
-            )))
-        }
-    };
+    let format = registry.get_format(&protocol_lower).ok_or_else(|| {
+        ConvertError::ConfigValidationError(format!(
+            "Unsupported protocol: {}. Supported: singbox, clash, v2ray",
+            protocol
+        ))
+    })?;
+
+    let protocol_name = format.name();
+    let default_ext = format.config_ext();
+    let template_content = format.default_template();
 
     info!(
         "Starting template generation for protocol: {}",

@@ -1,6 +1,7 @@
 //! V2Ray Protocol Support Module
 
 pub mod default_template;
+pub mod format;
 pub mod template_processor;
 
 use serde::{Deserialize, Serialize};

@@ -50,14 +50,7 @@ impl TemplateEngine {
             })?;
 
         // Step 3: Parse template as JSON or YAML
-        let mut config: serde_json::Value = serde_json::from_str(template)
-            .or_else(|_| {
-                serde_yaml::from_str::<serde_json::Value>(template)
-                    .map_err(|e| ConvertError::ConfigValidationError(format!(
-                        "Failed to parse template as JSON or YAML: {}",
-                        e
-                    )))
-            })?;
+        let mut config: serde_json::Value = crate::utils::parse_helpers::to_json_value(template)?;
 
         // Step 4: Process interpolation rules in JSON structure
         let mut all_nodes = Vec::new();
@@ -93,23 +86,37 @@ impl TemplateEngine {
                 for item in arr.iter() {
                     if let serde_json::Value::String(s) = item {
                         if s.starts_with("{{") && s.ends_with("}}") {
-                            // This is an interpolation rule - expand it
-                            if let Ok(rule) = InterpolationParser::parse(s) {
-                                if let Ok(nodes) =
-                                    processor.get_nodes_for_rule(&rule, &self.sources)
-                                {
-                                    // Add nodes to all_nodes for later appending
-                                    all_nodes.extend(nodes.clone());
-                                    // Expand node names into the array
-                                    for node in &nodes {
-                                        new_arr.push(serde_json::Value::String(node.name.clone()));
+                            match InterpolationParser::parse(s) {
+                                Ok(rule) => {
+                                    match processor.get_nodes_for_rule(&rule, &self.sources) {
+                                        Ok(nodes) => {
+                                            all_nodes.extend(nodes.clone());
+                                            for node in &nodes {
+                                                new_arr.push(serde_json::Value::String(
+                                                    node.name.clone(),
+                                                ));
+                                            }
+                                            continue;
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                "Failed to get nodes for rule '{}': {}",
+                                                s,
+                                                e
+                                            );
+                                        }
                                     }
-                                    continue;
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        "Failed to parse interpolation rule '{}': {}",
+                                        s,
+                                        e
+                                    );
                                 }
                             }
                         }
                     }
-                    // Not an interpolation rule or failed to parse - keep as is
                     let mut item_clone = item.clone();
                     self.process_json_value(&mut item_clone, processor, all_nodes)?;
                     new_arr.push(item_clone);
@@ -155,15 +162,32 @@ impl TemplateEngine {
                                     );
                                 }
 
-                                // Process the interpolation and use first node
-                                if let Ok(rule) = InterpolationParser::parse(s) {
-                                    if let Ok(nodes) =
-                                        processor.get_nodes_for_rule(&rule, &self.sources)
-                                    {
-                                        all_nodes.extend(nodes.clone());
-                                        if !nodes.is_empty() {
-                                            *s = nodes[0].name.clone();
+                                match InterpolationParser::parse(s) {
+                                    Ok(rule) => {
+                                        match processor
+                                            .get_nodes_for_rule(&rule, &self.sources)
+                                        {
+                                            Ok(nodes) => {
+                                                all_nodes.extend(nodes.clone());
+                                                if !nodes.is_empty() {
+                                                    *s = nodes[0].name.clone();
+                                                }
+                                            }
+                                            Err(e) => {
+                                                tracing::warn!(
+                                                    "Failed to get nodes for default rule '{}': {}",
+                                                    s,
+                                                    e
+                                                );
+                                            }
                                         }
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            "Failed to parse default interpolation '{}': {}",
+                                            s,
+                                            e
+                                        );
                                     }
                                 }
                             }
@@ -174,15 +198,31 @@ impl TemplateEngine {
                 }
             }
             serde_json::Value::String(s) => {
-                // Process string: check if it's an interpolation rule (for non-array contexts)
                 if s.starts_with("{{") && s.ends_with("}}") {
-                    if let Ok(rule) = InterpolationParser::parse(s) {
-                        if let Ok(nodes) = processor.get_nodes_for_rule(&rule, &self.sources) {
-                            all_nodes.extend(nodes.clone());
-                            // In non-array context, replace with first node name or empty
-                            if !nodes.is_empty() {
-                                *s = nodes[0].name.clone();
+                    match InterpolationParser::parse(s) {
+                        Ok(rule) => {
+                            match processor.get_nodes_for_rule(&rule, &self.sources) {
+                                Ok(nodes) => {
+                                    all_nodes.extend(nodes.clone());
+                                    if !nodes.is_empty() {
+                                        *s = nodes[0].name.clone();
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        "Failed to get nodes for rule '{}': {}",
+                                        s,
+                                        e
+                                    );
+                                }
                             }
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "Failed to parse interpolation rule '{}': {}",
+                                s,
+                                e
+                            );
                         }
                     }
                 }
@@ -199,34 +239,6 @@ impl TemplateEngine {
         }
         // Default to singbox if cannot detect
         Ok("singbox".to_string())
-    }
-
-    /// Get all servers from all sources
-    pub fn get_all_servers(&self) -> Vec<ProxyServer> {
-        let mut all_servers = Vec::new();
-
-        for source in self.sources.values() {
-            let servers = source.extract_servers().unwrap_or_default();
-
-            // if only one source, no need to add prefix
-            if self.sources.len() == 1 {
-                all_servers.extend(servers);
-            } else {
-                // if multiple sources, add prefix to distinguish them
-                for server in servers {
-                    all_servers.push(ProxyServer {
-                        name: format!(
-                            "{}@{}",
-                            source.meta.name.as_deref().unwrap_or("default"),
-                            server.name
-                        ),
-                        ..server
-                    });
-                }
-            }
-        }
-
-        all_servers
     }
 
     /// Deduplicate nodes
@@ -331,6 +343,4 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_generate_templates() {}
 }

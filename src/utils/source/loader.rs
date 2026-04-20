@@ -1,9 +1,9 @@
 //! Source loader for loading and parsing configurations
 
-use crate::core::source::{SourceMeta, SourceProtocol};
+use crate::core::source::{Protocol, SourceMeta};
 use crate::core::config::AppConfig;
 use crate::core::error::{ConvertError, Result};
-use crate::protocols::{clash, singbox, v2ray, ProtocolRegistry};
+use crate::protocols::ProtocolRegistry;
 use crate::utils::source::parser::{Config, Source};
 use std::path::Path;
 
@@ -24,9 +24,9 @@ impl SourceLoader {
             fmt.clone()
         } else {
             match &source_meta.source_type {
-                SourceProtocol::Clash => "clash".to_string(),
-                SourceProtocol::SingBox => "singbox".to_string(),
-                SourceProtocol::V2Ray => "v2ray".to_string(),
+                Protocol::Clash => "clash".to_string(),
+                Protocol::SingBox => "singbox".to_string(),
+                Protocol::V2Ray => "v2ray".to_string(),
             }
         };
 
@@ -58,15 +58,15 @@ impl SourceLoader {
     /// Use flag_override if set (empty string = &flag=), else source_type default.
     fn append_flag_to_url(
         url: &str,
-        source_type: &SourceProtocol,
+        source_type: &Protocol,
         flag_override: Option<&str>,
     ) -> String {
         let flag_value = match flag_override {
             Some(s) => s.to_string(),
             None => match source_type {
-                SourceProtocol::Clash => "clash".to_string(),
-                SourceProtocol::SingBox => "sing-box".to_string(),
-                SourceProtocol::V2Ray => "v2ray".to_string(),
+                Protocol::Clash => "clash".to_string(),
+                Protocol::SingBox => "sing-box".to_string(),
+                Protocol::V2Ray => "v2ray".to_string(),
             },
         };
 
@@ -189,21 +189,11 @@ impl SourceLoader {
         std::fs::read_to_string(path).map_err(|e| ConvertError::IoError(e))
     }
 
-    /// Parse configuration based on format (strongly typed)
+    /// Parse configuration based on format (strongly typed).
+    /// Subscription and plain formats are handled directly; protocol formats
+    /// are dispatched through the registry's `ProtocolFormat` trait.
     fn parse_config(content: &str, format: &str, registry: &ProtocolRegistry) -> Result<Config> {
         match format.to_lowercase().as_str() {
-            "clash" => {
-                let config = Self::parse_clash_config(content)?;
-                Ok(Config::Clash(config))
-            }
-            "singbox" => {
-                let config = Self::parse_singbox_config(content)?;
-                Ok(Config::SingBox(config))
-            }
-            "v2ray" => {
-                let config = Self::parse_v2ray_config(content)?;
-                Ok(Config::V2Ray(config))
-            }
             "subscription" => {
                 let servers = registry.parse_subscription_to_servers(content)?;
                 Ok(Config::Subscription(servers))
@@ -212,29 +202,26 @@ impl SourceLoader {
                 let servers = registry.parse_plain_text_to_servers(content)?;
                 Ok(Config::Plain(servers))
             }
-            _ => Err(ConvertError::ConfigValidationError(format!(
-                "Unsupported format: {}",
-                format
-            ))),
+            other => {
+                let fmt = registry.get_format(other).ok_or_else(|| {
+                    ConvertError::ConfigValidationError(format!(
+                        "Unsupported format: {}",
+                        other
+                    ))
+                })?;
+                fmt.parse_config(content)
+            }
         }
-    }
-
-    /// Parse Clash configuration (strongly typed)
-    fn parse_clash_config(content: &str) -> Result<clash::Config> {
-        // Try to parse as YAML
-        if let Ok(config) = serde_yaml::from_str::<clash::Config>(content) {
-            return Ok(config);
-        }
-
-        Err(ConvertError::ConfigValidationError(
-            "Failed to parse Clash configuration".to_string(),
-        ))
     }
 
     /// Parse Sing-box configuration (strongly typed).
-    /// Normalize legacy DNS servers: when "address" exists but "type" is missing, set "type": "" so they deserialize as Server::Legacy.
-    pub(crate) fn parse_singbox_config(content: &str) -> Result<singbox::Config> {
-        if let Ok(config) = serde_json::from_str::<singbox::Config>(content) {
+    /// Normalize legacy DNS servers: when "address" exists but "type" is missing,
+    /// set "type": "" so they deserialize as Server::Legacy.
+    ///
+    /// Kept public so `SingboxFormat::parse_config` can reuse the normalization logic.
+    pub(crate) fn parse_singbox_config(content: &str) -> Result<crate::protocols::singbox::Config> {
+        // Try direct parse (JSON then YAML)
+        if let Ok(config) = crate::utils::parse_helpers::from_json_or_yaml::<crate::protocols::singbox::Config>(content) {
             return Ok(config);
         }
         // Normalize legacy DNS format (see sing-box docs: type empty = legacy, uses "address" only)
@@ -251,24 +238,12 @@ impl SourceLoader {
                     }
                 }
             }
-            if let Ok(config) = serde_json::from_value::<singbox::Config>(value) {
+            if let Ok(config) = serde_json::from_value::<crate::protocols::singbox::Config>(value) {
                 return Ok(config);
             }
         }
         Err(ConvertError::ConfigValidationError(
             "Failed to parse Sing-box configuration".to_string(),
-        ))
-    }
-
-    /// Parse V2Ray configuration (strongly typed)
-    fn parse_v2ray_config(content: &str) -> Result<v2ray::Config> {
-        // Try to parse as JSON first
-        if let Ok(config) = serde_json::from_str::<v2ray::Config>(content) {
-            return Ok(config);
-        }
-
-        Err(ConvertError::ConfigValidationError(
-            "Failed to parse V2Ray configuration".to_string(),
         ))
     }
 }

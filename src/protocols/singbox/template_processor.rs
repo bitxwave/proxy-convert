@@ -1,6 +1,7 @@
 //! Sing-box template processor
 
 use crate::protocols::{ProtocolProcessor, ProxyServer};
+use crate::protocols::shared_resolver::SharedNodeResolver;
 use crate::core::error::Result;
 use crate::utils::source::parser::Source;
 use crate::utils::template::interpolation_parser::InterpolationRule;
@@ -11,73 +12,6 @@ use serde_json;
 pub struct SingboxProcessor;
 
 impl SingboxProcessor {
-    /// Get all servers from sources (with source prefix if multiple sources)
-    /// Uses IndexMap to preserve insertion order of sources
-    fn get_all_servers_from_sources(sources: &IndexMap<String, Source>) -> Vec<ProxyServer> {
-        let has_multiple_sources = sources.len() > 1;
-
-        // IndexMap preserves insertion order, so iteration order matches the order sources were added
-        sources
-            .iter()
-            .flat_map(|(source_name, source)| {
-                let servers = source.extract_servers().unwrap_or_default();
-                if has_multiple_sources {
-                    // Add source prefix to distinguish nodes from different sources
-                    servers
-                        .into_iter()
-                        .map(|server| ProxyServer {
-                            name: format!("{}@{}", source_name, server.name),
-                            ..server
-                        })
-                        .collect::<Vec<_>>()
-                } else {
-                    servers
-                }
-            })
-            .collect()
-    }
-
-    /// Get servers from specific source (with source prefix if multiple sources exist)
-    fn get_servers_from_source(
-        sources: &IndexMap<String, Source>,
-        source_name: &str,
-    ) -> Vec<ProxyServer> {
-        let has_multiple_sources = sources.len() > 1;
-
-        sources
-            .get(source_name)
-            .map(|source| {
-                let servers = source.extract_servers().unwrap_or_default();
-                if has_multiple_sources {
-                    // Add source prefix to distinguish nodes
-                    servers
-                        .into_iter()
-                        .map(|server| ProxyServer {
-                            name: format!("{}@{}", source_name, server.name),
-                            ..server
-                        })
-                        .collect()
-                } else {
-                    servers
-                }
-            })
-            .unwrap_or_default()
-    }
-
-    /// Filter servers by tag (name contains tag)
-    fn filter_by_tag(servers: Vec<ProxyServer>, tag: &str) -> Vec<ProxyServer> {
-        servers
-            .into_iter()
-            .filter(|s| s.name.contains(tag))
-            .collect()
-    }
-
-    /// Convert server list to JSON array of names
-    fn servers_to_json_names(servers: &[ProxyServer]) -> String {
-        let names: Vec<String> = servers.iter().map(|s| s.name.clone()).collect();
-        serde_json::to_string(&names).unwrap_or_else(|_| "[]".to_string())
-    }
-
     /// Convert VMess parameters to Sing-box format
     /// Handles both Clash-style flat params and Sing-box-style nested objects
     pub fn convert_vmess_params_to_singbox(
@@ -103,108 +37,14 @@ impl SingboxProcessor {
             }
         }
 
-        // TLS handling — detect sing-box style nested tls object vs Clash-style boolean
-        if let Some(tls) = params.get("tls") {
-            if let Some(tls_obj) = tls.as_object() {
-                // Sing-box style: tls is already a full object, pass through
-                let mut tls_config = tls_obj.clone();
-                tls_config
-                    .entry("enabled".to_string())
-                    .or_insert(serde_json::Value::Bool(true));
-                config.insert("tls".to_string(), serde_json::Value::Object(tls_config));
-            } else if tls.as_bool().unwrap_or(false) {
-                // Clash style: tls is a boolean, build from flat params
-                let mut tls_config = serde_json::Map::new();
-                tls_config.insert("enabled".to_string(), serde_json::Value::Bool(true));
-
-                if let Some(servername) = params.get("servername").or(params.get("sni")) {
-                    tls_config.insert("server_name".to_string(), servername.clone());
-                }
-
-                if let Some(skip) = params.get("skip-cert-verify") {
-                    tls_config.insert("insecure".to_string(), skip.clone());
-                }
-
-                config.insert("tls".to_string(), serde_json::Value::Object(tls_config));
-            }
+        // TLS handling — delegate to shared converter
+        if let Some(tls_value) = crate::protocols::transport_converter::clash_tls_to_singbox(params, false) {
+            config.insert("tls".to_string(), tls_value);
         }
 
-        // Transport handling — detect sing-box style nested transport object first
-        if let Some(transport) = params.get("transport") {
-            if let Some(transport_obj) = transport.as_object() {
-                config.insert(
-                    "transport".to_string(),
-                    serde_json::Value::Object(transport_obj.clone()),
-                );
-                return;
-            }
-        }
-
-        // Clash-style transport from "network" + opts
-        if let Some(network) = params.get("network").and_then(|v| v.as_str()) {
-            let mut transport = serde_json::Map::new();
-            transport.insert(
-                "type".to_string(),
-                serde_json::Value::String(network.to_string()),
-            );
-
-            match network {
-                "ws" => {
-                    if let Some(ws_opts) = params.get("ws-opts") {
-                        if let Some(path) = ws_opts.get("path") {
-                            transport.insert("path".to_string(), path.clone());
-                        }
-                        if let Some(headers) = ws_opts.get("headers") {
-                            transport.insert("headers".to_string(), headers.clone());
-                        }
-                        if let Some(early_data) = ws_opts.get("max-early-data") {
-                            transport.insert("max_early_data".to_string(), early_data.clone());
-                        }
-                        if let Some(header_name) = ws_opts.get("early-data-header-name") {
-                            transport
-                                .insert("early_data_header_name".to_string(), header_name.clone());
-                        }
-                    }
-                }
-                "grpc" => {
-                    if let Some(grpc_opts) = params.get("grpc-opts") {
-                        if let Some(service_name) = grpc_opts.get("grpc-service-name") {
-                            transport.insert("service_name".to_string(), service_name.clone());
-                        }
-                    }
-                }
-                "h2" => {
-                    if let Some(h2_opts) = params.get("h2-opts") {
-                        if let Some(host) = h2_opts.get("host") {
-                            transport.insert("host".to_string(), host.clone());
-                        }
-                        if let Some(path) = h2_opts.get("path") {
-                            transport.insert("path".to_string(), path.clone());
-                        }
-                    }
-                }
-                "http" => {
-                    if let Some(http_opts) = params.get("http-opts") {
-                        if let Some(method) = http_opts.get("method") {
-                            transport.insert("method".to_string(), method.clone());
-                        }
-                        if let Some(path) = http_opts.get("path") {
-                            transport.insert("path".to_string(), path.clone());
-                        }
-                        if let Some(headers) = http_opts.get("headers") {
-                            transport.insert("headers".to_string(), headers.clone());
-                        }
-                    }
-                }
-                _ => {}
-            }
-
-            if transport.len() > 1 {
-                config.insert(
-                    "transport".to_string(),
-                    serde_json::Value::Object(transport),
-                );
-            }
+        // Transport handling — delegate to shared converter
+        if let Some(transport_value) = crate::protocols::transport_converter::clash_transport_to_singbox(params) {
+            config.insert("transport".to_string(), transport_value);
         }
     }
 
@@ -215,93 +55,17 @@ impl SingboxProcessor {
         config: &mut serde_json::Map<String, serde_json::Value>,
         params: &std::collections::HashMap<String, serde_json::Value>,
     ) {
-        // Check if params already contain a sing-box style tls object
-        if let Some(tls) = params.get("tls") {
-            if let Some(tls_obj) = tls.as_object() {
-                let mut tls_config = tls_obj.clone();
-                tls_config
-                    .entry("enabled".to_string())
-                    .or_insert(serde_json::Value::Bool(true));
-                config.insert("tls".to_string(), serde_json::Value::Object(tls_config));
-            } else {
-                // tls is a boolean or other non-object — build from flat params
-                Self::build_trojan_tls_from_flat_params(config, params);
-            }
-        } else {
-            // No tls key — build from Clash-style flat params
-            Self::build_trojan_tls_from_flat_params(config, params);
+        // TLS handling — delegate to shared converter (trojan always has TLS)
+        if let Some(tls_value) = crate::protocols::transport_converter::clash_tls_to_singbox(params, true) {
+            config.insert("tls".to_string(), tls_value);
         }
 
-        // Check if params already contain a sing-box style transport object
-        if let Some(transport) = params.get("transport") {
-            if let Some(transport_obj) = transport.as_object() {
-                config.insert(
-                    "transport".to_string(),
-                    serde_json::Value::Object(transport_obj.clone()),
-                );
-                return;
-            }
-        }
-
-        // Clash-style transport from "network" + opts
-        if let Some(network) = params.get("network").and_then(|v| v.as_str()) {
-            let mut transport = serde_json::Map::new();
-            transport.insert(
-                "type".to_string(),
-                serde_json::Value::String(network.to_string()),
-            );
-
-            match network {
-                "ws" => {
-                    if let Some(ws_opts) = params.get("ws-opts") {
-                        if let Some(path) = ws_opts.get("path") {
-                            transport.insert("path".to_string(), path.clone());
-                        }
-                        if let Some(headers) = ws_opts.get("headers") {
-                            transport.insert("headers".to_string(), headers.clone());
-                        }
-                    }
-                }
-                "grpc" => {
-                    if let Some(grpc_opts) = params.get("grpc-opts") {
-                        if let Some(service_name) = grpc_opts.get("grpc-service-name") {
-                            transport.insert("service_name".to_string(), service_name.clone());
-                        }
-                    }
-                }
-                _ => {}
-            }
-
-            if transport.len() > 1 {
-                config.insert(
-                    "transport".to_string(),
-                    serde_json::Value::Object(transport),
-                );
-            }
+        // Transport handling — delegate to shared converter
+        if let Some(transport_value) = crate::protocols::transport_converter::clash_transport_to_singbox(params) {
+            config.insert("transport".to_string(), transport_value);
         }
     }
 
-    fn build_trojan_tls_from_flat_params(
-        config: &mut serde_json::Map<String, serde_json::Value>,
-        params: &std::collections::HashMap<String, serde_json::Value>,
-    ) {
-        let mut tls_config = serde_json::Map::new();
-        tls_config.insert("enabled".to_string(), serde_json::Value::Bool(true));
-
-        if let Some(sni) = params.get("sni").or(params.get("servername")) {
-            tls_config.insert("server_name".to_string(), sni.clone());
-        }
-
-        if let Some(skip) = params.get("skip-cert-verify") {
-            tls_config.insert("insecure".to_string(), skip.clone());
-        }
-
-        if let Some(alpn) = params.get("alpn") {
-            tls_config.insert("alpn".to_string(), alpn.clone());
-        }
-
-        config.insert("tls".to_string(), serde_json::Value::Object(tls_config));
-    }
 }
 
 impl ProtocolProcessor for SingboxProcessor {
@@ -310,8 +74,7 @@ impl ProtocolProcessor for SingboxProcessor {
         rule: &InterpolationRule,
         sources: &IndexMap<String, Source>,
     ) -> Result<String> {
-        let servers = self.get_nodes_for_rule(rule, sources)?;
-        Ok(Self::servers_to_json_names(&servers))
+        SharedNodeResolver::process_rule(rule, sources)
     }
 
     fn get_nodes_for_rule(
@@ -319,119 +82,7 @@ impl ProtocolProcessor for SingboxProcessor {
         rule: &InterpolationRule,
         sources: &IndexMap<String, Source>,
     ) -> Result<Vec<ProxyServer>> {
-        match rule {
-            InterpolationRule::AllTagFromSources(source_list) => {
-                let mut all_servers = Vec::new();
-
-                if source_list.is_empty() || source_list == &[(None, None)] {
-                    // Get all nodes from all sources
-                    all_servers = Self::get_all_servers_from_sources(sources);
-                } else {
-                    for (source_name, tag_filter) in source_list {
-                        let servers = if let Some(source_name) = source_name {
-                            Self::get_servers_from_source(sources, source_name)
-                        } else {
-                            Self::get_all_servers_from_sources(sources)
-                        };
-
-                        // Apply tag filter if specified
-                        let filtered = if let Some(tag) = tag_filter {
-                            Self::filter_by_tag(servers, tag)
-                        } else {
-                            servers
-                        };
-
-                        all_servers.extend(filtered);
-                    }
-                }
-
-                Ok(all_servers)
-            }
-
-            InterpolationRule::IncludeTagFromSources(tag_pairs) => {
-                let mut matching_servers = Vec::new();
-
-                for (source_name, tag) in tag_pairs {
-                    let servers_to_search = if let Some(source_name) = source_name {
-                        Self::get_servers_from_source(sources, source_name)
-                    } else {
-                        Self::get_all_servers_from_sources(sources)
-                    };
-
-                    let filtered = Self::filter_by_tag(servers_to_search, tag);
-                    matching_servers.extend(filtered);
-                }
-
-                Ok(matching_servers)
-            }
-
-            InterpolationRule::ExcludeTagFromSources(tag_pairs) => {
-                let mut all_servers = Self::get_all_servers_from_sources(sources);
-
-                for (source_name, tag) in tag_pairs {
-                    let exclude_from = if let Some(source_name) = source_name {
-                        Self::get_servers_from_source(sources, source_name)
-                    } else {
-                        all_servers.clone()
-                    };
-
-                    // Create a set of server names to exclude
-                    let exclude_names: std::collections::HashSet<String> = exclude_from
-                        .iter()
-                        .filter(|s| s.name.contains(tag))
-                        .map(|s| s.name.clone())
-                        .collect();
-
-                    all_servers.retain(|server| !exclude_names.contains(&server.name));
-                }
-
-                Ok(all_servers)
-            }
-
-            InterpolationRule::CombinedRule {
-                all_tag,
-                include_tag,
-                exclude_tag,
-            } => {
-                // Start with all servers or servers from ALL-TAG rule
-                let mut result_servers = if let Some(all_rule) = all_tag {
-                    self.get_nodes_for_rule(all_rule, sources)?
-                } else {
-                    Self::get_all_servers_from_sources(sources)
-                };
-
-                // Apply INCLUDE-TAG filter (intersection)
-                if let Some(include_rule) = include_tag {
-                    let include_servers = self.get_nodes_for_rule(include_rule, sources)?;
-                    let include_names: std::collections::HashSet<String> =
-                        include_servers.iter().map(|s| s.name.clone()).collect();
-                    result_servers.retain(|s| include_names.contains(&s.name));
-                }
-
-                // Apply EXCLUDE-TAG filter (removal)
-                // Extract the tags to exclude and filter directly
-                if let Some(exclude_rule) = exclude_tag {
-                    if let InterpolationRule::ExcludeTagFromSources(tag_pairs) =
-                        exclude_rule.as_ref()
-                    {
-                        for (source_name, tag) in tag_pairs {
-                            if source_name.is_some() {
-                                // Exclude only from specific source
-                                let source_prefix = format!("{}@", source_name.as_ref().unwrap());
-                                result_servers.retain(|s| {
-                                    !(s.name.starts_with(&source_prefix) && s.name.contains(tag))
-                                });
-                            } else {
-                                // Exclude from all sources
-                                result_servers.retain(|s| !s.name.contains(tag));
-                            }
-                        }
-                    }
-                }
-
-                Ok(result_servers)
-            }
-        }
+        SharedNodeResolver::get_nodes_for_rule(rule, sources)
     }
 
     fn set_default_values(&self, template: &str, nodes: &[ProxyServer]) -> Result<String> {
@@ -618,17 +269,21 @@ impl ProtocolProcessor for SingboxProcessor {
             }
         }
 
-        serde_json::to_string_pretty(&serde_json::Value::Object(config)).unwrap()
+        serde_json::to_string_pretty(&serde_json::Value::Object(config))
+            .unwrap_or_else(|e| {
+                tracing::error!("Failed to serialize singbox node config: {}", e);
+                "{}".to_string()
+            })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::source::{SourceMeta, SourceProtocol};
+    use crate::core::source::{Protocol, SourceMeta};
     use crate::utils::source::parser::{Config, Source};
     use std::collections::HashMap;
-    use crate::protocols::{clash, singbox};
+    use crate::protocols::{clash, singbox, ProxyParams};
 
     fn create_test_sources() -> IndexMap<String, Source> {
         let mut sources = IndexMap::new();
@@ -649,7 +304,7 @@ mod tests {
             Source {
                 meta: SourceMeta {
                     name: Some("clash1".to_string()),
-                    source_type: SourceProtocol::Clash,
+                    source_type: Protocol::Clash,
                     source: "./clash.yaml".to_string(),
                     format: None,
                     flag: None,
@@ -674,7 +329,7 @@ mod tests {
             Source {
                 meta: SourceMeta {
                     name: Some("singbox1".to_string()),
-                    source_type: SourceProtocol::SingBox,
+                    source_type: Protocol::SingBox,
                     source: "./singbox.json".to_string(),
                     format: None,
                     flag: None,
@@ -764,6 +419,7 @@ mod tests {
                 password: None,
                 method: None,
                 parameters: HashMap::new(),
+                params: ProxyParams::Generic,
             },
             ProxyServer {
                 name: "Node-02".to_string(),
@@ -773,10 +429,11 @@ mod tests {
                 password: None,
                 method: None,
                 parameters: HashMap::new(),
+                params: ProxyParams::Generic,
             },
         ];
 
-        let json = SingboxProcessor::servers_to_json_names(&servers);
+        let json = crate::protocols::shared_resolver::SharedNodeResolver::servers_to_json_names(&servers);
         assert_eq!(json, "[\"Node-01\",\"Node-02\"]");
     }
 
@@ -791,6 +448,7 @@ mod tests {
             password: Some("test-password".to_string()),
             method: Some("aes-256-gcm".to_string()),
             parameters: HashMap::new(),
+            params: ProxyParams::Generic,
         };
 
         let config = processor.create_node_config(&server);
@@ -818,6 +476,7 @@ mod tests {
             password: Some("test".to_string()),
             method: Some("aes-256-gcm".to_string()),
             parameters: HashMap::new(),
+            params: ProxyParams::Generic,
         };
 
         let config = processor.create_node_config(&server_with_prefix);
@@ -841,6 +500,7 @@ mod tests {
                 password: Some("test".to_string()),
                 method: Some("aes-256-gcm".to_string()),
                 parameters: HashMap::new(),
+                params: ProxyParams::Generic,
             },
             ProxyServer {
                 name: "singbox1@US-Node-01".to_string(),
@@ -850,6 +510,7 @@ mod tests {
                 password: None,
                 method: None,
                 parameters: HashMap::new(),
+                params: ProxyParams::Generic,
             },
         ];
 
