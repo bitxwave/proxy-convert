@@ -9,12 +9,14 @@ pub mod detect;
 pub mod protocol_format;
 pub mod shared_resolver;
 pub mod singbox;
+pub mod source;
 pub mod subscription;
 pub mod v2ray;
 pub mod transport_converter;
 
+pub use source::{Config, Source};
+
 use crate::core::error::Result;
-use crate::utils::source::parser::Source;
 use crate::utils::template::interpolation_parser::InterpolationRule;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};

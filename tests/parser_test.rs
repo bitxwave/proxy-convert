@@ -2,7 +2,7 @@
 
 use proxy_convert::core::source::Protocol;
 use proxy_convert::protocols::{clash, singbox, ProxyParams};
-use proxy_convert::utils::source::parser::{Config, Source};
+use proxy_convert::protocols::source::{Config, Source};
 
 fn make_source(config: Config, source_type: Protocol) -> Source {
     use proxy_convert::core::source::SourceMeta;

@@ -4,7 +4,7 @@
 //! `ProtocolRegistry::init()` is all that is needed to add a new format.
 
 use crate::core::error::Result;
-use crate::utils::source::parser::Config;
+use crate::protocols::source::Config;
 
 /// Everything needed to support a proxy protocol format.
 pub trait ProtocolFormat: Send + Sync {

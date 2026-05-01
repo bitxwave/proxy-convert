@@ -1,8 +1,12 @@
-//! Source configuration parser
+//! Parsed source model: typed `Config` variants per protocol and
+//! the cross-protocol `ProxyServer` extraction logic.
+//!
+//! Lives under `protocols` because its variants wrap protocol-specific
+//! configs — keeping it here avoids a backwards `utils -> protocols` edge.
 
-use crate::core::source::SourceMeta;
+use super::{clash, singbox, v2ray, ProxyParams, ProxyServer, TlsParams, TransportParams};
 use crate::core::error::Result;
-use crate::protocols::{clash, singbox, v2ray, ProxyParams, ProxyServer, TlsParams, TransportParams};
+use crate::core::source::SourceMeta;
 use std::collections::HashMap;
 
 /// Configuration for different protocols (strongly typed)

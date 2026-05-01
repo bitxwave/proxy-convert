@@ -2,7 +2,7 @@
 
 use crate::protocols::ProxyServer;
 use crate::core::error::Result;
-use crate::utils::source::parser::Source;
+use crate::protocols::source::Source;
 use crate::utils::template::interpolation_parser::InterpolationRule;
 use indexmap::IndexMap;
 use serde_json;

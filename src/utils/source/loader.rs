@@ -4,7 +4,7 @@ use crate::core::config::AppConfig;
 use crate::core::error::{ConvertError, Result};
 use crate::core::source::{Protocol, SourceMeta};
 use crate::protocols::{ProtocolRegistry, FORMAT_PLAIN, FORMAT_SUBSCRIPTION};
-use crate::utils::source::parser::{Config, Source};
+use crate::protocols::source::{Config, Source};
 use std::path::Path;
 use std::str::FromStr;
 use url::Url;

@@ -9,7 +9,7 @@
 use super::interpolation_parser::InterpolationParser;
 use crate::protocols::{ProtocolProcessor, ProtocolRegistry, ProxyServer};
 use crate::core::error::{ConvertError, Result};
-use crate::utils::source::parser::Source;
+use crate::protocols::source::Source;
 use indexmap::IndexMap;
 
 /// Template engine

@@ -2,7 +2,7 @@
 
 use crate::core::error::{ConvertError, Result};
 use crate::protocols::protocol_format::ProtocolFormat;
-use crate::utils::source::parser::Config;
+use crate::protocols::source::Config;
 
 /// Sing-box format descriptor.
 pub struct SingboxFormat;

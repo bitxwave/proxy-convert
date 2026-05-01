@@ -3,7 +3,7 @@
 use crate::protocols::{ProtocolProcessor, ProxyServer};
 use crate::protocols::shared_resolver::SharedNodeResolver;
 use crate::core::error::Result;
-use crate::utils::source::parser::Source;
+use crate::protocols::source::Source;
 use crate::utils::template::interpolation_parser::InterpolationRule;
 use indexmap::IndexMap;
 use serde_json;
@@ -281,7 +281,7 @@ impl ProtocolProcessor for SingboxProcessor {
 mod tests {
     use super::*;
     use crate::core::source::{Protocol, SourceMeta};
-    use crate::utils::source::parser::{Config, Source};
+    use crate::protocols::source::{Config, Source};
     use std::collections::HashMap;
     use crate::protocols::{clash, singbox, ProxyParams};
 
