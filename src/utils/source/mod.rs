@@ -1,6 +1,6 @@
-//! Source configuration parsing and loading module
+//! Source IO: remote/file fetching and orchestration. Domain types
+//! (Source, Config) live in `crate::protocols::source`.
 
 pub mod loader;
-pub mod parser;
 
 pub use loader::SourceLoader;

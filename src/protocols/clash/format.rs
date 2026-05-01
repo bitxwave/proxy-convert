@@ -2,10 +2,15 @@
 
 use crate::core::error::{ConvertError, Result};
 use crate::protocols::protocol_format::ProtocolFormat;
-use crate::utils::source::parser::Config;
+use crate::protocols::source::Config;
+use crate::protocols::ProtocolProcessor;
+
+use super::template_processor::ClashProcessor;
 
 /// Clash format descriptor.
 pub struct ClashFormat;
+
+static PROCESSOR: ClashProcessor = ClashProcessor;
 
 impl ProtocolFormat for ClashFormat {
     fn name(&self) -> &'static str {
@@ -44,5 +49,9 @@ impl ProtocolFormat for ClashFormat {
         let config: super::Config =
             crate::utils::parse_helpers::from_json_or_yaml(content)?;
         Ok(Config::Clash(config))
+    }
+
+    fn processor(&self) -> &'static dyn ProtocolProcessor {
+        &PROCESSOR
     }
 }

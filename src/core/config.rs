@@ -137,67 +137,29 @@ impl AppConfig {
         paths
     }
 
-    /// Merge CLI parameters into config (CLI parameters take precedence)
-    pub fn merge_cli_params(&mut self, cli: &crate::commands::cli::Commands) -> Result<()> {
-        if let crate::commands::cli::Commands::Convert {
-            timeout,
-            output_protocol,
-            verbose,
-            log_level,
-            template,
-            output,
-            ..
-        } = cli
-        {
-            // Merge timeout
-            if let Some(timeout_val) = timeout {
-                self.timeout_seconds = *timeout_val;
-                tracing::debug!(
-                    "CLI timeout parameter overrides config: {} seconds",
-                    timeout_val
-                );
-            }
-
-            // Merge output protocol
-            if let Some(protocol) = output_protocol {
-                self.output_protocol = protocol.clone();
-                tracing::debug!(
-                    "CLI output protocol parameter overrides config: {}",
-                    protocol
-                );
-            }
-
-            // Merge verbose
-            if *verbose {
-                self.verbose = true;
-                tracing::debug!("CLI verbose parameter overrides config: true");
-            }
-
-            // Merge log level
-            let cli_log_level = format!("{:?}", log_level).to_lowercase();
-            if cli_log_level != "info" {
-                // Override only when CLI specifies non-default
-                self.log_level = cli_log_level.clone();
-                tracing::debug!(
-                    "CLI log_level parameter overrides config: {}",
-                    cli_log_level
-                );
-            }
-
-            // Merge template
-            if let Some(tpl) = template {
-                self.template = Some(tpl.to_string_lossy().to_string());
-                tracing::debug!("CLI template parameter overrides config: {:?}", tpl);
-            }
-
-            // Merge output path (only when CLI specifies)
-            if let Some(out) = output {
-                let output_str = out.to_string_lossy().to_string();
-                self.output = Some(output_str.clone());
-                tracing::debug!("CLI output parameter overrides config: {}", output_str);
-            }
+    /// Merge `ConvertArgs` into config. CLI fields override whatever came from
+    /// the config file / env vars; CLI default values (e.g. LogLevel::Info) are
+    /// treated as "not specified" so they don't overwrite user config.
+    pub fn merge_convert_args(&mut self, args: &crate::commands::cli::ConvertArgs) {
+        if let Some(t) = args.timeout {
+            self.timeout_seconds = t;
         }
-        Ok(())
+        if let Some(p) = &args.output_protocol {
+            self.output_protocol = p.clone();
+        }
+        if args.verbose {
+            self.verbose = true;
+        }
+        let cli_log_level = format!("{:?}", args.log_level).to_lowercase();
+        if cli_log_level != "info" {
+            self.log_level = cli_log_level;
+        }
+        if let Some(tpl) = &args.template {
+            self.template = Some(tpl.to_string_lossy().into_owned());
+        }
+        if let Some(out) = &args.output {
+            self.output = Some(out.to_string_lossy().into_owned());
+        }
     }
 
     /// Load application configuration.

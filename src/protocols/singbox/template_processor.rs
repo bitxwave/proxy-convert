@@ -3,7 +3,7 @@
 use crate::protocols::{ProtocolProcessor, ProxyServer};
 use crate::protocols::shared_resolver::SharedNodeResolver;
 use crate::core::error::Result;
-use crate::utils::source::parser::Source;
+use crate::protocols::source::Source;
 use crate::utils::template::interpolation_parser::InterpolationRule;
 use indexmap::IndexMap;
 use serde_json;
@@ -255,14 +255,14 @@ impl ProtocolProcessor for SingboxProcessor {
         }
         // VMess specific handling
         if is_vmess {
-            Self::convert_vmess_params_to_singbox(&mut config, &node.parameters);
+            Self::convert_vmess_params_to_singbox(&mut config, &node.extras());
         } else if is_trojan {
-            Self::convert_trojan_params_to_singbox(&mut config, &node.parameters);
+            Self::convert_trojan_params_to_singbox(&mut config, &node.extras());
         } else {
             // Generic parameter handling
             // Skip fields that are already handled or not needed in sing-box
             let skip_keys = ["cipher", "udp", "name", "type", "server", "port"];
-            for (key, value) in &node.parameters {
+            for (key, value) in node.extras() {
                 if !skip_keys.contains(&key.as_str()) && !(is_shadowsocks && key == "udp") {
                     config.insert(key.clone(), value.clone());
                 }
@@ -281,7 +281,7 @@ impl ProtocolProcessor for SingboxProcessor {
 mod tests {
     use super::*;
     use crate::core::source::{Protocol, SourceMeta};
-    use crate::utils::source::parser::{Config, Source};
+    use crate::protocols::source::{Config, Source};
     use std::collections::HashMap;
     use crate::protocols::{clash, singbox, ProxyParams};
 
@@ -305,6 +305,7 @@ mod tests {
                 meta: SourceMeta {
                     name: Some("clash1".to_string()),
                     source_type: Protocol::Clash,
+                    location: crate::core::source::SourceLocation::File("./clash.yaml".into()),
                     source: "./clash.yaml".to_string(),
                     format: None,
                     flag: None,
@@ -330,6 +331,7 @@ mod tests {
                 meta: SourceMeta {
                     name: Some("singbox1".to_string()),
                     source_type: Protocol::SingBox,
+                    location: crate::core::source::SourceLocation::File("./singbox.json".into()),
                     source: "./singbox.json".to_string(),
                     format: None,
                     flag: None,
@@ -418,8 +420,8 @@ mod tests {
                 port: 443,
                 password: None,
                 method: None,
-                parameters: HashMap::new(),
-                params: ProxyParams::Generic,
+                  
+                params: ProxyParams::Generic { extras: HashMap::new() },
             },
             ProxyServer {
                 name: "Node-02".to_string(),
@@ -428,8 +430,8 @@ mod tests {
                 port: 443,
                 password: None,
                 method: None,
-                parameters: HashMap::new(),
-                params: ProxyParams::Generic,
+                  
+                params: ProxyParams::Generic { extras: HashMap::new() },
             },
         ];
 
@@ -447,8 +449,8 @@ mod tests {
             port: 443,
             password: Some("test-password".to_string()),
             method: Some("aes-256-gcm".to_string()),
-            parameters: HashMap::new(),
-            params: ProxyParams::Generic,
+              
+            params: ProxyParams::Generic { extras: HashMap::new() },
         };
 
         let config = processor.create_node_config(&server);
@@ -475,8 +477,8 @@ mod tests {
             port: 443,
             password: Some("test".to_string()),
             method: Some("aes-256-gcm".to_string()),
-            parameters: HashMap::new(),
-            params: ProxyParams::Generic,
+              
+            params: ProxyParams::Generic { extras: HashMap::new() },
         };
 
         let config = processor.create_node_config(&server_with_prefix);
@@ -499,8 +501,8 @@ mod tests {
                 port: 443,
                 password: Some("test".to_string()),
                 method: Some("aes-256-gcm".to_string()),
-                parameters: HashMap::new(),
-                params: ProxyParams::Generic,
+                  
+                params: ProxyParams::Generic { extras: HashMap::new() },
             },
             ProxyServer {
                 name: "singbox1@US-Node-01".to_string(),
@@ -509,8 +511,8 @@ mod tests {
                 port: 443,
                 password: None,
                 method: None,
-                parameters: HashMap::new(),
-                params: ProxyParams::Generic,
+                  
+                params: ProxyParams::Generic { extras: HashMap::new() },
             },
         ];
 

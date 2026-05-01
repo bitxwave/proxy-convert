@@ -6,9 +6,7 @@ use crate::core::source::{Protocol, SourceMeta};
 use crate::protocols;
 use crate::protocols::ProtocolRegistry;
 use crate::utils::{source, template::template_engine};
-
-/// Backward-compatible alias so `use crate::commands::convert::OutputProtocol` still works.
-pub type OutputProtocol = Protocol;
+use std::str::FromStr;
 
 /// Convert command handler
 pub struct ConvertCommand;
@@ -54,12 +52,8 @@ impl ConvertCommand {
             Self::generate_default_config(&template_engine, output_protocol, registry)?
         };
 
-        // Get output format and filename based on protocol
-        let output_format = match output_protocol.default_output_format() {
-            "yaml" => cli::OutputFormat::Yaml,
-            _ => cli::OutputFormat::Json,
-        };
-        let formatted_result = Self::format_output(&result, &output_format)?;
+        // Serialize to the protocol's native format (json or yaml).
+        let formatted_result = Self::format_output(&result, output_protocol)?;
         // output result
         let output_path = Self::resolve_output_path(output, output_protocol)?;
         // Ensure parent directory exists
@@ -111,7 +105,14 @@ impl ConvertCommand {
     }
 
     /// Parse source string: only URL form <path|url>?type=...&name=...&flag=... (type required in query).
+    ///
+    /// Extracts our synthetic query keys (`type`/`name`/`flag`) and builds a
+    /// typed `SourceLocation` so downstream code doesn't have to re-parse the
+    /// raw string. Any other query params belong to the remote URL and are
+    /// preserved when the source is an HTTP(S) URL.
     pub fn parse_source_string(raw: &str) -> Result<SourceMeta> {
+        use crate::core::source::SourceLocation;
+
         let raw = raw.trim();
         let pos = raw.find('?').ok_or_else(|| {
             ConvertError::ConfigValidationError(format!(
@@ -119,17 +120,18 @@ impl ConvertCommand {
                 raw
             ))
         })?;
-        let (_base, query_str) = raw.split_at(pos);
+        let (base, query_str) = raw.split_at(pos);
         let query_str = query_str.trim_start_matches('?');
         let mut name: Option<String> = None;
         let mut type_param: Option<String> = None;
         let mut flag: Option<String> = None;
+        let mut external_query: Vec<(String, String)> = Vec::new();
         for (k, v) in url::form_urlencoded::parse(query_str.as_bytes()) {
             match k.as_ref() {
                 "name" => name = Some(v.into_owned()),
                 "type" => type_param = Some(v.into_owned()),
                 "flag" => flag = Some(v.into_owned()),
-                _ => {}
+                _ => external_query.push((k.into_owned(), v.into_owned())),
             }
         }
         let source_type_str = type_param.ok_or_else(|| {
@@ -137,16 +139,27 @@ impl ConvertCommand {
                 "Query must include type param. Example: url?type=clash&name=my&flag=clash".to_string(),
             )
         })?;
-        let source_type = Protocol::from_str(&source_type_str).ok_or_else(|| {
-            ConvertError::ConfigValidationError(format!(
-                "Unsupported type: {}, supported: clash, sing-box(singbox), v2ray",
-                source_type_str
-            ))
-        })?;
-        // Keep full string (path|url + all query params); type/name/flag are parsed out but remain in source
+        let source_type = Protocol::from_str(&source_type_str)?;
+
+        let location = if base.starts_with("http://") || base.starts_with("https://") {
+            let mut u = url::Url::parse(base).map_err(|e| {
+                ConvertError::ConfigValidationError(format!("Invalid URL {}: {}", base, e))
+            })?;
+            if !external_query.is_empty() {
+                u.query_pairs_mut().clear();
+                for (k, v) in &external_query {
+                    u.query_pairs_mut().append_pair(k, v);
+                }
+            }
+            SourceLocation::Url(u)
+        } else {
+            SourceLocation::File(std::path::PathBuf::from(base))
+        };
+
         Ok(SourceMeta {
             name: name.filter(|s| !s.is_empty()),
             source_type,
+            location,
             source: raw.to_string(),
             format: None,
             flag,
@@ -174,51 +187,26 @@ impl ConvertCommand {
         template_engine.process_template(&template_str, registry)
     }
 
-    /// Format output based on the specified format
-    fn format_output(content: &str, format: &cli::OutputFormat) -> Result<String> {
-        match format {
-            cli::OutputFormat::Json => {
-                // Parse and re-serialize as pretty JSON (formatted)
-                let parsed: serde_json::Value =
-                    serde_json::from_str(content).map_err(|e| ConvertError::JsonParseError(e))?;
-                Ok(serde_json::to_string_pretty(&parsed)
-                    .map_err(|e| ConvertError::JsonParseError(e))?)
-            }
-            cli::OutputFormat::Yaml => {
-                // Parse JSON and convert to YAML
-                let parsed: serde_json::Value =
-                    serde_json::from_str(content).map_err(|e| ConvertError::JsonParseError(e))?;
-                Ok(serde_yaml::to_string(&parsed)
-                    .map_err(|e| ConvertError::ConfigValidationError(e.to_string()))?)
-            }
+    /// Serialize the intermediate JSON string to the protocol's native format.
+    fn format_output(content: &str, protocol: &Protocol) -> Result<String> {
+        let parsed: serde_json::Value = serde_json::from_str(content)?;
+        match protocol.default_output_format() {
+            "yaml" => serde_yaml::to_string(&parsed)
+                .map_err(|e| ConvertError::ConfigValidationError(e.to_string())),
+            _ => Ok(serde_json::to_string_pretty(&parsed)?),
         }
     }
 }
 
 /// Handle convert command
 pub async fn handle_convert(
-    convert_cmd: &cli::Commands,
+    args: &cli::ConvertArgs,
     config: &crate::core::config::AppConfig,
     registry: &protocols::ProtocolRegistry,
 ) -> Result<()> {
-    // Extract Convert command args
-    let (sources, output, template, output_protocol_str) = match convert_cmd {
-        cli::Commands::Convert {
-            sources,
-            output,
-            template,
-            output_protocol,
-            ..
-        } => (sources, output, template, output_protocol),
-        _ => {
-            return Err(ConvertError::ConfigValidationError(
-                "Expected Convert command".to_string(),
-            ))
-        }
-    };
-
     // Parse each source (CLI + config): <path|url>?type=...&name=...&flag=...
-    let mut final_sources: Vec<SourceMeta> = sources
+    let mut final_sources: Vec<SourceMeta> = args
+        .sources
         .iter()
         .map(|raw| ConvertCommand::parse_source_string(raw))
         .collect::<Result<Vec<_>>>()?;
@@ -228,69 +216,33 @@ pub async fn handle_convert(
         }
     }
 
-    // Output protocol: CLI > config > default (sing-box)
-    let output_protocol_str = output_protocol_str
-        .as_ref()
-        .map(|s| s.as_str())
-        .unwrap_or_else(|| config.output_protocol.as_str());
+    // Output protocol: CLI > config > default. Config has already been merged
+    // with CLI in main, so we just read from config here.
+    let output_protocol = Protocol::from_str(&config.output_protocol)?;
 
-    let output_protocol = Protocol::from_str(output_protocol_str).ok_or_else(|| {
-        ConvertError::ConfigValidationError(format!(
-            "Unsupported output protocol: {}, supported protocols: sing-box(singbox), clash, v2ray",
-            output_protocol_str
-        ))
-    })?;
-
-    // Merge output: CLI > config > default
-    let final_output: Option<String> = output
-        .as_ref()
-        .and_then(|p| p.to_str())
-        .map(|s| s.to_string())
-        .or_else(|| config.output.clone());
-
-    // Merge template: CLI > config > None (in-memory default)
-    let final_template: Option<String> = template
-        .as_ref()
-        .and_then(|p| p.to_str())
-        .map(|s| s.to_string())
-        .or_else(|| config.template.clone());
+    let final_output: Option<String> = config.output.clone();
+    let final_template: Option<String> = config.template.clone();
 
     tracing::info!("Starting conversion");
     for (i, m) in final_sources.iter().enumerate() {
-        let type_str = m.source_type.as_format_str();
-        let name_str = m.name.as_deref().unwrap_or("(none)");
-        let flag_str = m.flag.as_deref().unwrap_or("(default)");
         tracing::info!(
             "Input source [{}]: {}  type={} name={} flag={}",
             i + 1,
             m.source,
-            type_str,
-            name_str,
-            flag_str
+            m.source_type,
+            m.name.as_deref().unwrap_or("(none)"),
+            m.flag.as_deref().unwrap_or("(default)"),
         );
     }
-    tracing::info!(
-        "Template: {}",
-        final_template.as_deref().unwrap_or("(default)")
-    );
-    tracing::info!(
-        "Output: {}",
-        final_output.as_deref().unwrap_or("(default)")
-    );
-    tracing::info!("Output protocol: {}", output_protocol_str);
-    tracing::info!(
-        "Output format: {}",
-        match output_protocol.default_output_format() {
-            "yaml" => "YAML",
-            _ => "JSON",
-        }
-    );
+    tracing::info!("Template: {}", final_template.as_deref().unwrap_or("(default)"));
+    tracing::info!("Output: {}", final_output.as_deref().unwrap_or("(default)"));
+    tracing::info!("Output protocol: {}", output_protocol);
+    tracing::info!("Output format: {}", output_protocol.default_output_format().to_uppercase());
     tracing::info!("Using timeout: {} seconds", config.timeout_seconds);
 
-    // Run conversion
     ConvertCommand::start_convert(
         &final_sources,
-        None, // input_format
+        None,
         &output_protocol,
         final_output.as_deref(),
         final_template.as_deref(),

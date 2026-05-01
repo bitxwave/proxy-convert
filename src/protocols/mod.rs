@@ -9,18 +9,31 @@ pub mod detect;
 pub mod protocol_format;
 pub mod shared_resolver;
 pub mod singbox;
+pub mod source;
 pub mod subscription;
 pub mod v2ray;
 pub mod transport_converter;
 
+pub use source::{Config, Source};
+
 use crate::core::error::Result;
-use crate::utils::source::parser::Source;
 use crate::utils::template::interpolation_parser::InterpolationRule;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Typed proxy protocol parameters
+/// Canonical format keys used by detect/loader for non-protocol content.
+pub const FORMAT_SUBSCRIPTION: &str = "subscription";
+pub const FORMAT_PLAIN: &str = "plain";
+
+/// Typed proxy-protocol parameters.
+///
+/// Each variant carries the typed fields that processors need, plus an
+/// `extras` map for protocol-specific fields that haven't been typed yet
+/// (e.g. obscure transport tweaks). Previously these lived in a flat
+/// `ProxyServer.parameters` HashMap, which duplicated the typed data and
+/// made it unclear which field was canonical — `extras` makes the scope
+/// explicit: "raw leftovers for *this* protocol".
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProxyParams {
     Shadowsocks {
@@ -28,6 +41,7 @@ pub enum ProxyParams {
         udp: Option<bool>,
         plugin: Option<String>,
         plugin_opts: Option<String>,
+        extras: HashMap<String, serde_json::Value>,
     },
     Vmess {
         uuid: String,
@@ -35,28 +49,50 @@ pub enum ProxyParams {
         security: Option<String>,
         tls: Option<TlsParams>,
         transport: Option<TransportParams>,
+        extras: HashMap<String, serde_json::Value>,
     },
     Trojan {
         tls: Option<TlsParams>,
         transport: Option<TransportParams>,
+        extras: HashMap<String, serde_json::Value>,
     },
     Vless {
         uuid: String,
         flow: Option<String>,
         tls: Option<TlsParams>,
         transport: Option<TransportParams>,
+        extras: HashMap<String, serde_json::Value>,
     },
     Hysteria2 {
         obfs_password: Option<String>,
         tls: Option<TlsParams>,
+        extras: HashMap<String, serde_json::Value>,
     },
-    /// Fallback for protocols not yet fully typed
-    Generic,
+    /// Fallback for protocols not yet fully typed.
+    Generic {
+        extras: HashMap<String, serde_json::Value>,
+    },
 }
 
 impl Default for ProxyParams {
     fn default() -> Self {
-        ProxyParams::Generic
+        ProxyParams::Generic { extras: HashMap::new() }
+    }
+}
+
+impl ProxyParams {
+    /// Raw leftover fields for this protocol (e.g. unknown options preserved
+    /// verbatim for pass-through). Typed fields should be read from the
+    /// variant's named fields, not from here.
+    pub fn extras(&self) -> &HashMap<String, serde_json::Value> {
+        match self {
+            ProxyParams::Shadowsocks { extras, .. }
+            | ProxyParams::Vmess { extras, .. }
+            | ProxyParams::Trojan { extras, .. }
+            | ProxyParams::Vless { extras, .. }
+            | ProxyParams::Hysteria2 { extras, .. }
+            | ProxyParams::Generic { extras } => extras,
+        }
     }
 }
 
@@ -81,26 +117,28 @@ pub struct TransportParams {
     pub early_data_header_name: Option<String>,
 }
 
-/// Proxy server information
+/// Proxy server information.
+///
+/// Protocol-specific fields live inside `params` (and, for not-yet-typed
+/// fields, `params.extras()`). There is no flat fallback HashMap on the
+/// server itself — read through the typed variant.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProxyServer {
-    /// Server name
     pub name: String,
-    /// Server type
     pub protocol: String,
-    /// Server address
     pub server: String,
-    /// Server port
     pub port: u16,
-    /// Password (if needed)
     pub password: Option<String>,
-    /// Encryption method (if needed)
     pub method: Option<String>,
-    /// Additional parameters (legacy HashMap, kept for backward compatibility)
-    pub parameters: HashMap<String, serde_json::Value>,
-    /// Typed parameters (new, preferred for reading protocol-specific data)
     #[serde(skip)]
     pub params: ProxyParams,
+}
+
+impl ProxyServer {
+    /// Convenience — raw pass-through fields for this server's protocol.
+    pub fn extras(&self) -> &HashMap<String, serde_json::Value> {
+        self.params.extras()
+    }
 }
 
 /// Protocol processor trait - each protocol implements this for template processing.
@@ -137,30 +175,28 @@ pub trait ProtocolProcessor: Send + Sync {
     fn create_node_config(&self, node: &ProxyServer) -> String;
 }
 
-/// Protocol converter registry: format detection, parsing, and processor lookup.
+/// Protocol converter registry: a single table of `ProtocolFormat`s that
+/// yields descriptor info, parsers, and template processors.
+///
+/// Uses `IndexMap` so iteration order matches registration order — makes
+/// logging and format-detection fallbacks deterministic.
 pub struct ProtocolRegistry {
-    processors: HashMap<String, Box<dyn ProtocolProcessor>>,
-    formats: HashMap<String, Box<dyn protocol_format::ProtocolFormat>>,
+    formats: IndexMap<String, Box<dyn protocol_format::ProtocolFormat>>,
 }
 
 impl ProtocolRegistry {
     /// Create new empty registry (for tests or custom setup).
     pub fn new() -> Self {
         Self {
-            processors: HashMap::new(),
-            formats: HashMap::new(),
+            formats: IndexMap::new(),
         }
     }
 
-    /// Register a processor for a format name (e.g. "clash", "singbox", "v2ray").
-    pub fn register(&mut self, format: &str, processor: Box<dyn ProtocolProcessor>) {
-        self.processors.insert(format.to_lowercase(), processor);
-    }
-
-    /// Register a `ProtocolFormat` descriptor.
-    pub fn register_format(&mut self, format: Box<dyn protocol_format::ProtocolFormat>) {
-        let name = format.name().to_string();
-        self.formats.insert(name.to_lowercase(), format);
+    /// Register a protocol. One call per protocol covers both format
+    /// descriptor and template processor.
+    pub fn register(&mut self, format: Box<dyn protocol_format::ProtocolFormat>) {
+        let name = format.name().to_lowercase();
+        self.formats.insert(name, format);
     }
 
     /// Look up a `ProtocolFormat` by canonical name or alias.
@@ -170,7 +206,6 @@ impl ProtocolRegistry {
             .get(&lower)
             .map(|b| b.as_ref())
             .or_else(|| {
-                // Fall back to alias search
                 self.formats
                     .values()
                     .find(|f| f.aliases().iter().any(|a| a.to_lowercase() == lower))
@@ -180,7 +215,7 @@ impl ProtocolRegistry {
 
     /// Get processor by format name. Used by TemplateEngine.
     pub fn get_processor(&self, format: &str) -> Option<&dyn ProtocolProcessor> {
-        self.processors.get(&format.to_lowercase()).map(|b| b.as_ref())
+        self.get_format(format).map(|f| f.processor())
     }
 
     /// Auto-detect input format (delegates to detect module).
@@ -188,17 +223,12 @@ impl ProtocolRegistry {
         detect::detect_format(content)
     }
 
-    /// Initialize protocol registry with built-in processors and format descriptors.
+    /// Initialize protocol registry with the built-in protocols.
     pub fn init() -> Self {
         let mut registry = Self::new();
-        // Processors (used by TemplateEngine)
-        registry.register("clash", Box::new(clash::template_processor::ClashProcessor));
-        registry.register("singbox", Box::new(singbox::template_processor::SingboxProcessor));
-        registry.register("v2ray", Box::new(v2ray::template_processor::V2RayProcessor));
-        // Format descriptors (validate, parse, default template, metadata)
-        registry.register_format(Box::new(singbox::format::SingboxFormat));
-        registry.register_format(Box::new(clash::format::ClashFormat));
-        registry.register_format(Box::new(v2ray::format::V2RayFormat));
+        registry.register(Box::new(singbox::format::SingboxFormat));
+        registry.register(Box::new(clash::format::ClashFormat));
+        registry.register(Box::new(v2ray::format::V2RayFormat));
         tracing::info!("Protocol registry initialized successfully");
         registry
     }

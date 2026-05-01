@@ -2,10 +2,15 @@
 
 use crate::core::error::{ConvertError, Result};
 use crate::protocols::protocol_format::ProtocolFormat;
-use crate::utils::source::parser::Config;
+use crate::protocols::source::Config;
+use crate::protocols::ProtocolProcessor;
+
+use super::template_processor::V2RayProcessor;
 
 /// V2Ray format descriptor.
 pub struct V2RayFormat;
+
+static PROCESSOR: V2RayProcessor = V2RayProcessor;
 
 impl ProtocolFormat for V2RayFormat {
     fn name(&self) -> &'static str {
@@ -42,5 +47,9 @@ impl ProtocolFormat for V2RayFormat {
         let config: super::Config =
             crate::utils::parse_helpers::from_json_or_yaml(content)?;
         Ok(Config::V2Ray(config))
+    }
+
+    fn processor(&self) -> &'static dyn ProtocolProcessor {
+        &PROCESSOR
     }
 }

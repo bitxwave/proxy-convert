@@ -19,49 +19,36 @@ async fn main() {
 }
 
 async fn run() -> error::Result<()> {
-    // Parse command line arguments
     let cli = Cli::parse();
 
-    // Handle commands
+    // Version is standalone — no config load, no logging setup needed.
+    if matches!(cli.command, Commands::Version) {
+        version::handle_version();
+        return Ok(());
+    }
+
+    let config_path = cli.config.as_ref().and_then(|p| p.to_str());
+    let mut config = AppConfig::load_from_path(config_path)?;
+
+    if let Commands::Convert(args) = &cli.command {
+        config.merge_convert_args(args);
+    }
+
+    let log_level = match config.log_level.to_lowercase().as_str() {
+        "error" => Level::ERROR,
+        "warn" => Level::WARN,
+        "debug" => Level::DEBUG,
+        "trace" => Level::TRACE,
+        _ => Level::INFO,
+    };
+    logging::init_logging(log_level)?;
+
+    let registry = proxy_convert::protocols::ProtocolRegistry::init();
+
     match cli.command {
-        Commands::Version => {
-            version::handle_version();
-            Ok(())
-        }
-        _ => {
-            // Load configuration from specified path or default locations
-            let config_path = cli.config.as_ref().and_then(|p| p.to_str());
-            let mut config = AppConfig::load_from_path(config_path)?;
-
-            // Merge CLI parameters into config (CLI parameters take precedence)
-            config.merge_cli_params(&cli.command)?;
-
-            // Initialize logging system with config log level
-            let log_level = match config.log_level.to_lowercase().as_str() {
-                "error" => Level::ERROR,
-                "warn" => Level::WARN,
-                "debug" => Level::DEBUG,
-                "trace" => Level::TRACE,
-                _ => Level::INFO,
-            };
-            logging::init_logging(log_level)?;
-
-            // Initialize protocol registry
-            let registry = proxy_convert::protocols::ProtocolRegistry::init();
-
-            // Handle other commands
-            match cli.command {
-                Commands::Convert { .. } => {
-                    convert::handle_convert(&cli.command, &config, &registry).await
-                }
-                Commands::Validate { .. } => {
-                    validate::handle_validate(&cli.command, &config, &registry).await
-                }
-                Commands::Template { .. } => {
-                    template::handle_template(&cli.command, &config, &registry).await
-                }
-                Commands::Version => unreachable!(),
-            }
-        }
+        Commands::Convert(args) => convert::handle_convert(&args, &config, &registry).await,
+        Commands::Validate(args) => validate::handle_validate(&args, &config, &registry).await,
+        Commands::Template(args) => template::handle_template(&args, &config, &registry).await,
+        Commands::Version => unreachable!("handled above"),
     }
 }

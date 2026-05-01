@@ -76,8 +76,6 @@ fn parse_vmess_url(url: &str) -> Result<Option<ProxyServer>> {
     };
     let server = &server_port[..colon_pos];
     let port = server_port[colon_pos + 1..].parse::<u16>().unwrap_or(0);
-    let mut parameters = HashMap::new();
-    parameters.insert("uuid".to_string(), serde_json::Value::String(uuid.to_string()));
     Ok(Some(ProxyServer {
         name: name.to_string(),
         protocol: "vmess".to_string(),
@@ -85,13 +83,13 @@ fn parse_vmess_url(url: &str) -> Result<Option<ProxyServer>> {
         port,
         password: None,
         method: None,
-        parameters,
         params: ProxyParams::Vmess {
             uuid: uuid.to_string(),
             alter_id: None,
             security: None,
             tls: None,
             transport: None,
+            extras: HashMap::new(),
         },
     }))
 }
@@ -114,11 +112,6 @@ fn parse_trojan_url(url: &str) -> Result<Option<ProxyServer>> {
     };
     let server = &server_port[..colon_pos];
     let port = server_port[colon_pos + 1..].parse::<u16>().unwrap_or(0);
-    let mut parameters = HashMap::new();
-    parameters.insert(
-        "password".to_string(),
-        serde_json::Value::String(password.to_string()),
-    );
     Ok(Some(ProxyServer {
         name: name.to_string(),
         protocol: "trojan".to_string(),
@@ -126,10 +119,10 @@ fn parse_trojan_url(url: &str) -> Result<Option<ProxyServer>> {
         port,
         password: Some(password.to_string()),
         method: None,
-        parameters,
         params: ProxyParams::Trojan {
             tls: None,
             transport: None,
+            extras: HashMap::new(),
         },
     }))
 }
@@ -185,12 +178,12 @@ fn parse_shadowsocks_url(url: &str) -> Result<Option<ProxyServer>> {
                         port,
                         password: Some(password.to_string()),
                         method: Some(method.to_string()),
-                        parameters: HashMap::new(),
                         params: ProxyParams::Shadowsocks {
                             cipher: method.to_string(),
                             udp: None,
                             plugin: None,
                             plugin_opts: None,
+                            extras: HashMap::new(),
                         },
                     }));
                 }
@@ -218,12 +211,12 @@ fn parse_shadowsocks_url(url: &str) -> Result<Option<ProxyServer>> {
                             port,
                             password: Some(password.to_string()),
                             method: Some(method.to_string()),
-                            parameters: HashMap::new(),
                             params: ProxyParams::Shadowsocks {
                                 cipher: method.to_string(),
                                 udp: None,
                                 plugin: None,
                                 plugin_opts: None,
+                                extras: HashMap::new(),
                             },
                         }));
                     }
@@ -309,15 +302,6 @@ fn parse_vless_url(url: &str) -> Result<Option<ProxyServer>> {
         })
     });
 
-    let mut parameters = HashMap::new();
-    parameters.insert(
-        "uuid".to_string(),
-        serde_json::Value::String(uuid.to_string()),
-    );
-    if let Some(ref f) = flow {
-        parameters.insert("flow".to_string(), serde_json::Value::String(f.clone()));
-    }
-
     Ok(Some(ProxyServer {
         name,
         protocol: "vless".to_string(),
@@ -325,12 +309,12 @@ fn parse_vless_url(url: &str) -> Result<Option<ProxyServer>> {
         port,
         password: None,
         method: None,
-        parameters,
         params: ProxyParams::Vless {
             uuid: uuid.to_string(),
             flow,
             tls,
             transport,
+            extras: HashMap::new(),
         },
     }))
 }
@@ -393,8 +377,6 @@ fn parse_hysteria2_url(url: &str) -> Result<Option<ProxyServer>> {
         alpn: None,
     });
 
-    let parameters = HashMap::new();
-
     Ok(Some(ProxyServer {
         name,
         protocol: "hysteria2".to_string(),
@@ -402,10 +384,10 @@ fn parse_hysteria2_url(url: &str) -> Result<Option<ProxyServer>> {
         port,
         password: Some(password.to_string()),
         method: None,
-        parameters,
         params: ProxyParams::Hysteria2 {
             obfs_password,
             tls,
+            extras: HashMap::new(),
         },
     }))
 }

@@ -3,7 +3,7 @@
 use crate::protocols::{ProtocolProcessor, ProxyServer};
 use crate::protocols::shared_resolver::SharedNodeResolver;
 use crate::core::error::Result;
-use crate::utils::source::parser::Source;
+use crate::protocols::source::Source;
 use crate::utils::template::interpolation_parser::InterpolationRule;
 use indexmap::IndexMap;
 
@@ -82,16 +82,16 @@ impl ProtocolProcessor for V2RayProcessor {
                 serde_json::Value::String("vmess".to_string()),
             );
 
-            let uuid = node.parameters.get("uuid")
+            let uuid = node.extras().get("uuid")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            let alter_id = node.parameters.get("alterId")
-                .or(node.parameters.get("alter_id"))
+            let alter_id = node.extras().get("alterId")
+                .or(node.extras().get("alter_id"))
                 .cloned()
                 .unwrap_or(serde_json::Value::Number(0.into()));
             let security = node.method.clone()
-                .or_else(|| node.parameters.get("security").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                .or_else(|| node.extras().get("security").and_then(|v| v.as_str()).map(|s| s.to_string()))
                 .unwrap_or_else(|| "auto".to_string());
 
             let mut user = serde_json::Map::new();
@@ -147,7 +147,7 @@ impl ProtocolProcessor for V2RayProcessor {
                 "protocol".to_string(),
                 serde_json::Value::String(node.protocol.clone()),
             );
-            for (key, value) in &node.parameters {
+            for (key, value) in node.extras() {
                 config.insert(key.clone(), value.clone());
             }
         }
@@ -155,7 +155,7 @@ impl ProtocolProcessor for V2RayProcessor {
         // Add streamSettings if tls or transport parameters are present
         let mut stream_settings = serde_json::Map::new();
 
-        if let Some(tls) = node.parameters.get("tls") {
+        if let Some(tls) = node.extras().get("tls") {
             if let Some(tls_obj) = tls.as_object() {
                 let enabled = tls_obj.get("enabled")
                     .and_then(|v| v.as_bool())
@@ -182,7 +182,7 @@ impl ProtocolProcessor for V2RayProcessor {
             }
         }
 
-        if let Some(transport) = node.parameters.get("transport") {
+        if let Some(transport) = node.extras().get("transport") {
             if let Some(transport_obj) = transport.as_object() {
                 if let Some(transport_type) = transport_obj.get("type").and_then(|v| v.as_str()) {
                     stream_settings.insert(
@@ -262,9 +262,9 @@ mod tests {
     #[test]
     fn test_create_vmess_node_config() {
         let processor = V2RayProcessor;
-        let mut params = HashMap::new();
-        params.insert("uuid".to_string(), serde_json::Value::String("test-uuid".to_string()));
-        params.insert("alterId".to_string(), serde_json::Value::Number(0.into()));
+        let mut extras = HashMap::new();
+        extras.insert("uuid".to_string(), serde_json::Value::String("test-uuid".to_string()));
+        extras.insert("alterId".to_string(), serde_json::Value::Number(0.into()));
         let server = ProxyServer {
             name: "test".to_string(),
             protocol: "vmess".to_string(),
@@ -272,8 +272,7 @@ mod tests {
             port: 443,
             password: None,
             method: None,
-            parameters: params,
-            params: ProxyParams::Generic,
+            params: ProxyParams::Generic { extras },
         };
         let config = processor.create_node_config(&server);
         let parsed: serde_json::Value = serde_json::from_str(&config).unwrap();
@@ -293,8 +292,7 @@ mod tests {
             port: 8443,
             password: Some("my-pass".to_string()),
             method: None,
-            parameters: HashMap::new(),
-            params: ProxyParams::Generic,
+            params: ProxyParams::Generic { extras: HashMap::new() },
         };
         let config = processor.create_node_config(&server);
         let parsed: serde_json::Value = serde_json::from_str(&config).unwrap();
