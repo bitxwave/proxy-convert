@@ -36,7 +36,7 @@ jobs:
             runner: windows-11-arm
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@v1
@@ -45,7 +45,7 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Cache cargo
-        uses: Swatinem/rust-cache@v2.8.2
+        uses: Swatinem/rust-cache@v2.9.1
         with:
           key: ${{ matrix.target }}
 
