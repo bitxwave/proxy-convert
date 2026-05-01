@@ -176,28 +176,13 @@ impl ConvertCommand {
 
 /// Handle convert command
 pub async fn handle_convert(
-    convert_cmd: &cli::Commands,
+    args: &cli::ConvertArgs,
     config: &crate::core::config::AppConfig,
     registry: &protocols::ProtocolRegistry,
 ) -> Result<()> {
-    // Extract Convert command args
-    let (sources, output, template, output_protocol_str) = match convert_cmd {
-        cli::Commands::Convert {
-            sources,
-            output,
-            template,
-            output_protocol,
-            ..
-        } => (sources, output, template, output_protocol),
-        _ => {
-            return Err(ConvertError::ConfigValidationError(
-                "Expected Convert command".to_string(),
-            ))
-        }
-    };
-
     // Parse each source (CLI + config): <path|url>?type=...&name=...&flag=...
-    let mut final_sources: Vec<SourceMeta> = sources
+    let mut final_sources: Vec<SourceMeta> = args
+        .sources
         .iter()
         .map(|raw| ConvertCommand::parse_source_string(raw))
         .collect::<Result<Vec<_>>>()?;
@@ -207,27 +192,12 @@ pub async fn handle_convert(
         }
     }
 
-    // Output protocol: CLI > config > default (sing-box)
-    let output_protocol_str = output_protocol_str
-        .as_ref()
-        .map(|s| s.as_str())
-        .unwrap_or_else(|| config.output_protocol.as_str());
+    // Output protocol: CLI > config > default. Config has already been merged
+    // with CLI in main, so we just read from config here.
+    let output_protocol = Protocol::from_str(&config.output_protocol)?;
 
-    let output_protocol = Protocol::from_str(output_protocol_str)?;
-
-    // Merge output: CLI > config > default
-    let final_output: Option<String> = output
-        .as_ref()
-        .and_then(|p| p.to_str())
-        .map(|s| s.to_string())
-        .or_else(|| config.output.clone());
-
-    // Merge template: CLI > config > None (in-memory default)
-    let final_template: Option<String> = template
-        .as_ref()
-        .and_then(|p| p.to_str())
-        .map(|s| s.to_string())
-        .or_else(|| config.template.clone());
+    let final_output: Option<String> = config.output.clone();
+    let final_template: Option<String> = config.template.clone();
 
     tracing::info!("Starting conversion");
     for (i, m) in final_sources.iter().enumerate() {
@@ -240,28 +210,15 @@ pub async fn handle_convert(
             m.flag.as_deref().unwrap_or("(default)"),
         );
     }
-    tracing::info!(
-        "Template: {}",
-        final_template.as_deref().unwrap_or("(default)")
-    );
-    tracing::info!(
-        "Output: {}",
-        final_output.as_deref().unwrap_or("(default)")
-    );
-    tracing::info!("Output protocol: {}", output_protocol_str);
-    tracing::info!(
-        "Output format: {}",
-        match output_protocol.default_output_format() {
-            "yaml" => "YAML",
-            _ => "JSON",
-        }
-    );
+    tracing::info!("Template: {}", final_template.as_deref().unwrap_or("(default)"));
+    tracing::info!("Output: {}", final_output.as_deref().unwrap_or("(default)"));
+    tracing::info!("Output protocol: {}", output_protocol);
+    tracing::info!("Output format: {}", output_protocol.default_output_format().to_uppercase());
     tracing::info!("Using timeout: {} seconds", config.timeout_seconds);
 
-    // Run conversion
     ConvertCommand::start_convert(
         &final_sources,
-        None, // input_format
+        None,
         &output_protocol,
         final_output.as_deref(),
         final_template.as_deref(),

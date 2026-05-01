@@ -1,51 +1,39 @@
 //! Template command module
 
+use crate::commands::cli::TemplateArgs;
+use crate::core::config::AppConfig;
 use crate::core::error::{ConvertError, Result};
+use crate::protocols::ProtocolRegistry;
 use tracing::info;
 
 /// Handle template generation command
 pub async fn handle_template(
-    template_cmd: &crate::commands::cli::Commands,
-    _config: &crate::core::config::AppConfig,
-    registry: &crate::protocols::ProtocolRegistry,
+    args: &TemplateArgs,
+    _config: &AppConfig,
+    registry: &ProtocolRegistry,
 ) -> Result<()> {
-    // Extract Template command args
-    let (output, protocol) = match template_cmd {
-        crate::commands::cli::Commands::Template { output, protocol } => (output, protocol),
-        _ => {
-            return Err(ConvertError::ConfigValidationError(
-                "Expected Template command".to_string(),
+    let format = registry
+        .get_format(&args.protocol.to_lowercase())
+        .ok_or_else(|| {
+            ConvertError::ConfigValidationError(format!(
+                "Unsupported protocol: {}. Supported: singbox, clash, v2ray",
+                args.protocol
             ))
-        }
-    };
-
-    // Resolve protocol via registry
-    let protocol_lower = protocol.to_lowercase();
-    let format = registry.get_format(&protocol_lower).ok_or_else(|| {
-        ConvertError::ConfigValidationError(format!(
-            "Unsupported protocol: {}. Supported: singbox, clash, v2ray",
-            protocol
-        ))
-    })?;
+        })?;
 
     let protocol_name = format.name();
     let default_ext = format.config_ext();
     let template_content = format.default_template();
 
-    info!(
-        "Starting template generation for protocol: {}",
-        protocol_name
-    );
+    info!("Starting template generation for protocol: {}", protocol_name);
 
-    // Output path
-    let output_path = if let Some(path) = output {
-        path.to_string_lossy().to_string()
-    } else {
-        format!("template.{}", default_ext)
-    };
+    let output_path = args
+        .output
+        .as_ref()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|| format!("template.{}", default_ext));
 
-    // Write template
-    std::fs::write(&output_path, &template_content).map_err(|e| ConvertError::IoError(e))?;
+    std::fs::write(&output_path, &template_content)?;
 
     info!("Template generated: {}", output_path);
     info!("Protocol: {}", protocol_name);

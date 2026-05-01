@@ -1,17 +1,18 @@
-//! Source loader for loading and parsing configurations
+//! Source loader for loading and parsing configurations.
 
-use crate::core::source::{Protocol, SourceMeta};
 use crate::core::config::AppConfig;
 use crate::core::error::{ConvertError, Result};
+use crate::core::source::{Protocol, SourceMeta};
 use crate::protocols::{ProtocolRegistry, FORMAT_PLAIN, FORMAT_SUBSCRIPTION};
 use crate::utils::source::parser::{Config, Source};
 use std::path::Path;
+use std::str::FromStr;
+use url::Url;
 
-/// Source loader for loading and parsing configurations
 pub struct SourceLoader;
 
 impl SourceLoader {
-    /// Load and parse a source configuration
+    /// Load and parse a source configuration.
     pub async fn load_source(
         source_meta: &SourceMeta,
         registry: &ProtocolRegistry,
@@ -19,162 +20,38 @@ impl SourceLoader {
     ) -> Result<Source> {
         let content = Self::load_content_from_source(source_meta, config).await?;
 
-        // Determine the format
         let detected_format = source_meta
             .format
             .clone()
             .unwrap_or_else(|| source_meta.source_type.as_format_str().to_string());
 
-        // Parse configuration based on detected format
         let parsed_config = Self::parse_config(&content, &detected_format, registry)?;
 
         Ok(Source::new(source_meta.clone(), parsed_config))
     }
 
-    /// Load content from source (URL or local file)
     async fn load_content_from_source(
         source_meta: &SourceMeta,
         config: &AppConfig,
     ) -> Result<String> {
         let source = &source_meta.source;
         if source.starts_with("http://") || source.starts_with("https://") {
-            // Use source flag if set (empty = &flag=), else protocol default
-            let url_with_flag =
-                Self::append_flag_to_url(source, &source_meta.source_type, source_meta.flag.as_deref());
-            // Pick a User-Agent that subscription panels recognize.
-            // Why: v2board/xboard/sspanel-style panels route responses by UA;
-            // the default reqwest UA is rejected or silently dropped, surfacing
-            // as "address unreachable" even when the host is reachable.
-            let ua = Self::effective_user_agent(&source_meta.source_type, source_meta.flag.as_deref(), config);
+            let url_with_flag = with_flag_param(
+                source,
+                source_meta.source_type,
+                source_meta.flag.as_deref(),
+            )?;
+            // Subscription panels (v2board/xboard/sspanel) route responses by UA.
+            // Pick a protocol-matched default so the request isn't silently dropped.
+            let ua = effective_user_agent(source_meta.source_type, source_meta.flag.as_deref(), config);
             Self::load_from_url(&url_with_flag, &ua, config).await
         } else {
-            // File path: use only the part before ? (query params are kept in source string for reference)
+            // File path: drop any query string that was kept on `source` for reference.
             let path = source.find('?').map(|i| &source[..i]).unwrap_or(source.as_str());
             Self::load_from_file(path)
         }
     }
 
-    /// Choose the User-Agent to send with subscription requests.
-    /// Precedence: explicit `config.user_agent` (non-empty) > protocol-matched default.
-    fn effective_user_agent(
-        source_type: &Protocol,
-        flag_override: Option<&str>,
-        config: &AppConfig,
-    ) -> String {
-        let ua = config.user_agent.trim();
-        if !ua.is_empty() {
-            return ua.to_string();
-        }
-        // Derive from flag if the user overrode it, otherwise from source_type.
-        let kind = flag_override
-            .and_then(Protocol::from_str)
-            .unwrap_or(*source_type);
-        // Name-only; subscription panels typically match on the keyword, not the version.
-        // Users who hit a version-strict panel can override via config.user_agent.
-        match kind {
-            Protocol::SingBox => "sing-box".to_string(),
-            Protocol::Clash => "mihomo".to_string(),
-            Protocol::V2Ray => "v2rayN".to_string(),
-        }
-    }
-
-    /// Append or update flag query parameter to URL.
-    /// Use flag_override if set (empty string = &flag=), else source_type default.
-    fn append_flag_to_url(
-        url: &str,
-        source_type: &Protocol,
-        flag_override: Option<&str>,
-    ) -> String {
-        // For the URL flag parameter, panels commonly expect "sing-box" (hyphenated).
-        let flag_value = match flag_override {
-            Some(s) => s.to_string(),
-            None => match source_type {
-                Protocol::SingBox => "sing-box".to_string(),
-                other => other.as_format_str().to_string(),
-            },
-        };
-
-        // Check if flag parameter already exists and get its value
-        if let Some(current_flag_value) = Self::get_flag_param_value(url) {
-            if current_flag_value == flag_value {
-                url.to_string()
-            } else {
-                Self::update_flag_param(url, &flag_value)
-            }
-        } else {
-            if url.contains('?') {
-                format!("{}&flag={}", url, flag_value)
-            } else {
-                format!("{}?flag={}", url, flag_value)
-            }
-        }
-    }
-
-    /// Get the value of the flag parameter from URL, if it exists
-    fn get_flag_param_value(url: &str) -> Option<String> {
-        // Find the query string part (after ?)
-        if let Some(query_start) = url.find('?') {
-            let query_part = &url[query_start + 1..];
-            // Also check for fragment separator
-            let query_end = query_part.find('#').unwrap_or(query_part.len());
-            let query = &query_part[..query_end];
-            
-            // Find flag parameter in query string
-            for param in query.split('&') {
-                let param = param.trim_start_matches('?');
-                if let Some(flag_start) = param.find("flag=") {
-                    let value = &param[flag_start + 5..];
-                    // Get value up to next & or end of string
-                    let value_end = value.find('&').unwrap_or(value.len());
-                    return Some(value[..value_end].to_string());
-                }
-            }
-        }
-        None
-    }
-
-    /// Update the flag parameter value in URL
-    fn update_flag_param(url: &str, new_flag_value: &str) -> String {
-        // Find the query string part
-        if let Some(query_start) = url.find('?') {
-            let base_url = &url[..query_start + 1];
-            let query_part = &url[query_start + 1..];
-            
-            // Check for fragment
-            let (query, fragment) = if let Some(frag_start) = query_part.find('#') {
-                (&query_part[..frag_start], Some(&query_part[frag_start..]))
-            } else {
-                (query_part, None)
-            };
-            
-            // Split query parameters and update flag
-            let params: Vec<String> = query
-                .split('&')
-                .map(|p| {
-                    if p.trim_start_matches('?').starts_with("flag=") {
-                        format!("flag={}", new_flag_value)
-                    } else {
-                        p.to_string()
-                    }
-                })
-                .collect();
-            
-            // Reconstruct URL
-            let mut result = base_url.to_string();
-            if !params.is_empty() {
-                result.push_str(&params.join("&"));
-            }
-            if let Some(frag) = fragment {
-                result.push_str(frag);
-            }
-            result
-        } else {
-            // No query string, just add flag parameter
-            format!("{}?flag={}", url, new_flag_value)
-        }
-    }
-
-    /// Load content from URL (uses NetworkError for fetch failures).
     async fn load_from_url(url: &str, user_agent: &str, config: &AppConfig) -> Result<String> {
         tracing::info!("Fetching URL: {} (UA: {})", url, user_agent);
 
@@ -182,136 +59,170 @@ impl SourceLoader {
             .timeout(std::time::Duration::from_secs(config.timeout_seconds))
             .user_agent(user_agent)
             .build()
-            .map_err(|e| ConvertError::network_error(e.to_string().as_str()))?;
+            .map_err(|e| ConvertError::network_error(&e.to_string()))?;
 
         let response = client
             .get(url)
             .send()
             .await
-            .map_err(|e| ConvertError::network_error(e.to_string().as_str()))?;
+            .map_err(|e| ConvertError::network_error(&e.to_string()))?;
 
         if !response.status().is_success() {
-            return Err(ConvertError::network_error(
-                &format!("Failed to fetch URL: {} - Status: {}", url, response.status()),
-            ));
+            return Err(ConvertError::network_error(&format!(
+                "Failed to fetch URL: {} - Status: {}",
+                url,
+                response.status()
+            )));
         }
 
-        let content = response
+        response
             .text()
             .await
-            .map_err(|e| ConvertError::network_error(e.to_string().as_str()))?;
-
-        Ok(content)
+            .map_err(|e| ConvertError::network_error(&e.to_string()))
     }
 
-    /// Load content from local file
     fn load_from_file(file_path: &str) -> Result<String> {
         let path = Path::new(file_path);
         if !path.exists() {
             return Err(ConvertError::file_not_found(file_path));
         }
-
-        std::fs::read_to_string(path).map_err(|e| ConvertError::IoError(e))
+        Ok(std::fs::read_to_string(path)?)
     }
 
-    /// Parse configuration based on format (strongly typed).
-    /// Subscription and plain formats are handled directly; protocol formats
-    /// are dispatched through the registry's `ProtocolFormat` trait.
     fn parse_config(content: &str, format: &str, registry: &ProtocolRegistry) -> Result<Config> {
         match format.to_lowercase().as_str() {
-            FORMAT_SUBSCRIPTION => {
-                let servers = registry.parse_subscription_to_servers(content)?;
-                Ok(Config::Subscription(servers))
-            }
-            FORMAT_PLAIN => {
-                let servers = registry.parse_plain_text_to_servers(content)?;
-                Ok(Config::Plain(servers))
-            }
+            FORMAT_SUBSCRIPTION => Ok(Config::Subscription(
+                registry.parse_subscription_to_servers(content)?,
+            )),
+            FORMAT_PLAIN => Ok(Config::Plain(registry.parse_plain_text_to_servers(content)?)),
             other => {
                 let fmt = registry.get_format(other).ok_or_else(|| {
-                    ConvertError::ConfigValidationError(format!(
-                        "Unsupported format: {}",
-                        other
-                    ))
+                    ConvertError::ConfigValidationError(format!("Unsupported format: {}", other))
                 })?;
                 fmt.parse_config(content)
             }
         }
     }
+}
 
-    /// Parse Sing-box configuration (strongly typed).
-    /// Normalize legacy DNS servers: when "address" exists but "type" is missing,
-    /// set "type": "" so they deserialize as Server::Legacy.
-    ///
-    /// Kept public so `SingboxFormat::parse_config` can reuse the normalization logic.
-    pub(crate) fn parse_singbox_config(content: &str) -> Result<crate::protocols::singbox::Config> {
-        // Try direct parse (JSON then YAML)
-        if let Ok(config) = crate::utils::parse_helpers::from_json_or_yaml::<crate::protocols::singbox::Config>(content) {
-            return Ok(config);
-        }
-        // Normalize legacy DNS format (see sing-box docs: type empty = legacy, uses "address" only)
-        if let Ok(mut value) = serde_json::from_str::<serde_json::Value>(content) {
-            if let Some(dns) = value.get_mut("dns") {
-                if let Some(servers) = dns.get_mut("servers").and_then(|s| s.as_array_mut()) {
-                    for server in servers {
-                        if let Some(obj) = server.as_object_mut() {
-                            // Legacy format has "address" but no "type"; official docs: type empty = legacy
-                            if obj.contains_key("address") && !obj.contains_key("type") {
-                                obj.insert("type".to_string(), serde_json::Value::String(String::new()));
-                            }
-                        }
-                    }
-                }
-            }
-            if let Ok(config) = serde_json::from_value::<crate::protocols::singbox::Config>(value) {
-                return Ok(config);
-            }
-        }
-        Err(ConvertError::ConfigValidationError(
-            "Failed to parse Sing-box configuration".to_string(),
-        ))
+/// Choose the User-Agent to send with subscription requests.
+/// Precedence: explicit `config.user_agent` (non-empty) > protocol-matched default.
+fn effective_user_agent(source_type: Protocol, flag_override: Option<&str>, config: &AppConfig) -> String {
+    let ua = config.user_agent.trim();
+    if !ua.is_empty() {
+        return ua.to_string();
     }
+    // Derive from flag if the user overrode it, otherwise from source_type.
+    let kind = flag_override
+        .and_then(|s| Protocol::from_str(s).ok())
+        .unwrap_or(source_type);
+    // Name-only; subscription panels typically match on the keyword, not the version.
+    // Users who hit a version-strict panel can override via config.user_agent.
+    match kind {
+        Protocol::SingBox => "sing-box".to_string(),
+        Protocol::Clash => "mihomo".to_string(),
+        Protocol::V2Ray => "v2rayN".to_string(),
+    }
+}
+
+/// Compute the panel's `flag` query param: explicit override wins; otherwise
+/// derive from the source protocol (sing-box uses the hyphenated form).
+fn default_flag_for(protocol: Protocol) -> &'static str {
+    match protocol {
+        Protocol::SingBox => "sing-box",
+        Protocol::Clash => "clash",
+        Protocol::V2Ray => "v2ray",
+    }
+}
+
+/// Ensure the URL carries `flag=<value>`, replacing any existing value.
+/// Uses `url::Url` so encoding, fragments, and other params round-trip cleanly.
+fn with_flag_param(
+    raw_url: &str,
+    protocol: Protocol,
+    flag_override: Option<&str>,
+) -> Result<String> {
+    let flag_value = flag_override
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| default_flag_for(protocol).to_string());
+
+    let mut url = Url::parse(raw_url)
+        .map_err(|e| ConvertError::ConfigValidationError(format!("Invalid URL {}: {}", raw_url, e)))?;
+
+    // Preserve every param except `flag`, then append the new flag.
+    let preserved: Vec<(String, String)> = url
+        .query_pairs()
+        .filter(|(k, _)| k != "flag")
+        .map(|(k, v)| (k.into_owned(), v.into_owned()))
+        .collect();
+    url.query_pairs_mut().clear();
+    for (k, v) in preserved {
+        url.query_pairs_mut().append_pair(&k, &v);
+    }
+    url.query_pairs_mut().append_pair("flag", &flag_value);
+
+    Ok(url.into())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocols::singbox::dns::Server as DnsServer;
 
     #[test]
-    fn test_parse_singbox_config_legacy_dns() {
-        // Minimal sing-box config with legacy DNS (address only, no type) like Eternal Network
-        let json = r#"{
-            "dns": {
-                "servers": [
-                    {"address": "1.1.1.1", "detour": "proxy", "tag": "remote"},
-                    {"address": "https://223.5.5.5/dns-query", "detour": "direct", "tag": "local"},
-                    {"address": "rcode://refused", "tag": "block"}
-                ],
-                "final": "remote"
-            },
-            "inbounds": [],
-            "outbounds": [{"type": "direct", "tag": "direct"}]
-        }"#;
-        let config = SourceLoader::parse_singbox_config(json).unwrap();
-        let dns = config.dns.as_ref().unwrap();
-        assert_eq!(dns.servers.len(), 3);
+    fn adds_flag_when_absent() {
+        let out = with_flag_param("https://example.com/sub", Protocol::SingBox, None).unwrap();
+        assert!(out.contains("flag=sing-box"));
+    }
 
-        match &dns.servers[0] {
-            DnsServer::Legacy(l) => {
-                assert_eq!(l.address, "1.1.1.1");
-                assert_eq!(l.tag.as_deref(), Some("remote"));
-                assert_eq!(l.detour.as_deref(), Some("proxy"));
-            }
-            _ => panic!("first server should be Legacy"),
-        }
-        match &dns.servers[1] {
-            DnsServer::Legacy(l) => assert_eq!(l.address, "https://223.5.5.5/dns-query"),
-            _ => panic!("second server should be Legacy"),
-        }
-        match &dns.servers[2] {
-            DnsServer::Legacy(l) => assert_eq!(l.address, "rcode://refused"),
-            _ => panic!("third server should be Legacy"),
-        }
+    #[test]
+    fn replaces_existing_flag() {
+        let out = with_flag_param(
+            "https://example.com/sub?token=abc&flag=clash",
+            Protocol::SingBox,
+            None,
+        )
+        .unwrap();
+        assert!(out.contains("token=abc"));
+        assert!(out.contains("flag=sing-box"));
+        assert!(!out.contains("flag=clash"));
+    }
+
+    #[test]
+    fn override_wins_over_protocol_default() {
+        let out = with_flag_param("https://example.com/sub", Protocol::Clash, Some("custom"))
+            .unwrap();
+        assert!(out.contains("flag=custom"));
+    }
+
+    #[test]
+    fn preserves_fragment() {
+        let out = with_flag_param("https://example.com/sub#frag", Protocol::V2Ray, None).unwrap();
+        assert!(out.contains("flag=v2ray"));
+        assert!(out.ends_with("#frag"));
+    }
+
+    #[test]
+    fn effective_ua_respects_config_override() {
+        let mut cfg = AppConfig::default();
+        cfg.user_agent = "custom/1.0".to_string();
+        assert_eq!(effective_user_agent(Protocol::Clash, None, &cfg), "custom/1.0");
+    }
+
+    #[test]
+    fn effective_ua_falls_back_to_protocol_default() {
+        let cfg = AppConfig::default();
+        assert_eq!(effective_user_agent(Protocol::Clash, None, &cfg), "mihomo");
+        assert_eq!(effective_user_agent(Protocol::SingBox, None, &cfg), "sing-box");
+        assert_eq!(effective_user_agent(Protocol::V2Ray, None, &cfg), "v2rayN");
+    }
+
+    #[test]
+    fn effective_ua_uses_flag_override_for_protocol_derivation() {
+        let cfg = AppConfig::default();
+        // Source is SingBox but flag override says v2ray → UA matches flag.
+        assert_eq!(
+            effective_user_agent(Protocol::SingBox, Some("v2ray"), &cfg),
+            "v2rayN"
+        );
     }
 }
