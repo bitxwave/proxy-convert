@@ -4,18 +4,41 @@
 //! Kept in core to avoid utils depending on commands.
 
 use std::fmt;
+use std::path::PathBuf;
 use std::str::FromStr;
 
 use crate::core::error::ConvertError;
 
-/// Source metadata: path/url + query params (type, name, flag).
+/// Where this source lives. Computed once at parse time so downstream
+/// code never has to re-inspect the raw `source` string.
+#[derive(Debug, Clone)]
+pub enum SourceLocation {
+    /// Remote URL. Our synthetic query keys (`type`/`name`/`flag`) are
+    /// stripped; the user's own query params (tokens, etc.) stay intact.
+    Url(url::Url),
+    /// Local file path (query portion stripped).
+    File(PathBuf),
+}
+
+impl fmt::Display for SourceLocation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SourceLocation::Url(u) => f.write_str(u.as_str()),
+            SourceLocation::File(p) => write!(f, "{}", p.display()),
+        }
+    }
+}
+
+/// Source metadata: typed location + structured query params.
 #[derive(Debug, Clone)]
 pub struct SourceMeta {
     /// Optional display name for multi-source distinction
     pub name: Option<String>,
     /// Protocol type of this source (clash, sing-box, v2ray)
     pub source_type: Protocol,
-    /// Full source string: <path|url>?type=...&name=...&flag=...
+    /// Typed URL or file path — downstream reads from here.
+    pub location: SourceLocation,
+    /// Raw source string as the user typed it (kept verbatim for logs).
     pub source: String,
     /// Explicit format override; if None, derived from source_type
     pub format: Option<String>,

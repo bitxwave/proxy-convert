@@ -105,7 +105,14 @@ impl ConvertCommand {
     }
 
     /// Parse source string: only URL form <path|url>?type=...&name=...&flag=... (type required in query).
+    ///
+    /// Extracts our synthetic query keys (`type`/`name`/`flag`) and builds a
+    /// typed `SourceLocation` so downstream code doesn't have to re-parse the
+    /// raw string. Any other query params belong to the remote URL and are
+    /// preserved when the source is an HTTP(S) URL.
     pub fn parse_source_string(raw: &str) -> Result<SourceMeta> {
+        use crate::core::source::SourceLocation;
+
         let raw = raw.trim();
         let pos = raw.find('?').ok_or_else(|| {
             ConvertError::ConfigValidationError(format!(
@@ -113,17 +120,18 @@ impl ConvertCommand {
                 raw
             ))
         })?;
-        let (_base, query_str) = raw.split_at(pos);
+        let (base, query_str) = raw.split_at(pos);
         let query_str = query_str.trim_start_matches('?');
         let mut name: Option<String> = None;
         let mut type_param: Option<String> = None;
         let mut flag: Option<String> = None;
+        let mut external_query: Vec<(String, String)> = Vec::new();
         for (k, v) in url::form_urlencoded::parse(query_str.as_bytes()) {
             match k.as_ref() {
                 "name" => name = Some(v.into_owned()),
                 "type" => type_param = Some(v.into_owned()),
                 "flag" => flag = Some(v.into_owned()),
-                _ => {}
+                _ => external_query.push((k.into_owned(), v.into_owned())),
             }
         }
         let source_type_str = type_param.ok_or_else(|| {
@@ -132,10 +140,26 @@ impl ConvertCommand {
             )
         })?;
         let source_type = Protocol::from_str(&source_type_str)?;
-        // Keep full string (path|url + all query params); type/name/flag are parsed out but remain in source
+
+        let location = if base.starts_with("http://") || base.starts_with("https://") {
+            let mut u = url::Url::parse(base).map_err(|e| {
+                ConvertError::ConfigValidationError(format!("Invalid URL {}: {}", base, e))
+            })?;
+            if !external_query.is_empty() {
+                u.query_pairs_mut().clear();
+                for (k, v) in &external_query {
+                    u.query_pairs_mut().append_pair(k, v);
+                }
+            }
+            SourceLocation::Url(u)
+        } else {
+            SourceLocation::File(std::path::PathBuf::from(base))
+        };
+
         Ok(SourceMeta {
             name: name.filter(|s| !s.is_empty()),
             source_type,
+            location,
             source: raw.to_string(),
             format: None,
             flag,

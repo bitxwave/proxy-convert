@@ -5,11 +5,12 @@ use proxy_convert::protocols::{clash, singbox, ProxyParams};
 use proxy_convert::protocols::source::{Config, Source};
 
 fn make_source(config: Config, source_type: Protocol) -> Source {
-    use proxy_convert::core::source::SourceMeta;
+    use proxy_convert::core::source::{SourceLocation, SourceMeta};
     Source {
         meta: SourceMeta {
             name: Some("test".into()),
             source_type,
+            location: SourceLocation::File("test".into()),
             source: "test".into(),
             format: None,
             flag: None,

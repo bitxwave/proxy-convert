@@ -305,6 +305,7 @@ mod tests {
                 meta: SourceMeta {
                     name: Some("clash1".to_string()),
                     source_type: Protocol::Clash,
+                    location: crate::core::source::SourceLocation::File("./clash.yaml".into()),
                     source: "./clash.yaml".to_string(),
                     format: None,
                     flag: None,
@@ -330,6 +331,7 @@ mod tests {
                 meta: SourceMeta {
                     name: Some("singbox1".to_string()),
                     source_type: Protocol::SingBox,
+                    location: crate::core::source::SourceLocation::File("./singbox.json".into()),
                     source: "./singbox.json".to_string(),
                     format: None,
                     flag: None,

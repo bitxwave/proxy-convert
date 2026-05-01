@@ -2,10 +2,9 @@
 
 use crate::core::config::AppConfig;
 use crate::core::error::{ConvertError, Result};
-use crate::core::source::{Protocol, SourceMeta};
-use crate::protocols::{ProtocolRegistry, FORMAT_PLAIN, FORMAT_SUBSCRIPTION};
+use crate::core::source::{Protocol, SourceLocation, SourceMeta};
 use crate::protocols::source::{Config, Source};
-use std::path::Path;
+use crate::protocols::{ProtocolRegistry, FORMAT_PLAIN, FORMAT_SUBSCRIPTION};
 use std::str::FromStr;
 use url::Url;
 
@@ -34,21 +33,19 @@ impl SourceLoader {
         source_meta: &SourceMeta,
         config: &AppConfig,
     ) -> Result<String> {
-        let source = &source_meta.source;
-        if source.starts_with("http://") || source.starts_with("https://") {
-            let url_with_flag = with_flag_param(
-                source,
-                source_meta.source_type,
-                source_meta.flag.as_deref(),
-            )?;
-            // Subscription panels (v2board/xboard/sspanel) route responses by UA.
-            // Pick a protocol-matched default so the request isn't silently dropped.
-            let ua = effective_user_agent(source_meta.source_type, source_meta.flag.as_deref(), config);
-            Self::load_from_url(&url_with_flag, &ua, config).await
-        } else {
-            // File path: drop any query string that was kept on `source` for reference.
-            let path = source.find('?').map(|i| &source[..i]).unwrap_or(source.as_str());
-            Self::load_from_file(path)
+        match &source_meta.location {
+            SourceLocation::Url(url) => {
+                let url_with_flag = with_flag_param(
+                    url.clone(),
+                    source_meta.source_type,
+                    source_meta.flag.as_deref(),
+                );
+                // Subscription panels (v2board/xboard/sspanel) route responses by UA.
+                // Pick a protocol-matched default so the request isn't silently dropped.
+                let ua = effective_user_agent(source_meta.source_type, source_meta.flag.as_deref(), config);
+                Self::load_from_url(url_with_flag.as_str(), &ua, config).await
+            }
+            SourceLocation::File(path) => Self::load_from_file(path),
         }
     }
 
@@ -81,10 +78,9 @@ impl SourceLoader {
             .map_err(|e| ConvertError::network_error(&e.to_string()))
     }
 
-    fn load_from_file(file_path: &str) -> Result<String> {
-        let path = Path::new(file_path);
+    fn load_from_file(path: &std::path::Path) -> Result<String> {
         if !path.exists() {
-            return Err(ConvertError::file_not_found(file_path));
+            return Err(ConvertError::file_not_found(&path.display().to_string()));
         }
         Ok(std::fs::read_to_string(path)?)
     }
@@ -112,12 +108,9 @@ fn effective_user_agent(source_type: Protocol, flag_override: Option<&str>, conf
     if !ua.is_empty() {
         return ua.to_string();
     }
-    // Derive from flag if the user overrode it, otherwise from source_type.
     let kind = flag_override
         .and_then(|s| Protocol::from_str(s).ok())
         .unwrap_or(source_type);
-    // Name-only; subscription panels typically match on the keyword, not the version.
-    // Users who hit a version-strict panel can override via config.user_agent.
     match kind {
         Protocol::SingBox => "sing-box".to_string(),
         Protocol::Clash => "mihomo".to_string(),
@@ -136,20 +129,11 @@ fn default_flag_for(protocol: Protocol) -> &'static str {
 }
 
 /// Ensure the URL carries `flag=<value>`, replacing any existing value.
-/// Uses `url::Url` so encoding, fragments, and other params round-trip cleanly.
-fn with_flag_param(
-    raw_url: &str,
-    protocol: Protocol,
-    flag_override: Option<&str>,
-) -> Result<String> {
+fn with_flag_param(mut url: Url, protocol: Protocol, flag_override: Option<&str>) -> Url {
     let flag_value = flag_override
         .map(|s| s.to_string())
         .unwrap_or_else(|| default_flag_for(protocol).to_string());
 
-    let mut url = Url::parse(raw_url)
-        .map_err(|e| ConvertError::ConfigValidationError(format!("Invalid URL {}: {}", raw_url, e)))?;
-
-    // Preserve every param except `flag`, then append the new flag.
     let preserved: Vec<(String, String)> = url
         .query_pairs()
         .filter(|(k, _)| k != "flag")
@@ -160,45 +144,48 @@ fn with_flag_param(
         url.query_pairs_mut().append_pair(&k, &v);
     }
     url.query_pairs_mut().append_pair("flag", &flag_value);
-
-    Ok(url.into())
+    url
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn parse(u: &str) -> Url {
+        Url::parse(u).unwrap()
+    }
+
     #[test]
     fn adds_flag_when_absent() {
-        let out = with_flag_param("https://example.com/sub", Protocol::SingBox, None).unwrap();
-        assert!(out.contains("flag=sing-box"));
+        let out = with_flag_param(parse("https://example.com/sub"), Protocol::SingBox, None);
+        assert!(out.as_str().contains("flag=sing-box"));
     }
 
     #[test]
     fn replaces_existing_flag() {
         let out = with_flag_param(
-            "https://example.com/sub?token=abc&flag=clash",
+            parse("https://example.com/sub?token=abc&flag=clash"),
             Protocol::SingBox,
             None,
-        )
-        .unwrap();
-        assert!(out.contains("token=abc"));
-        assert!(out.contains("flag=sing-box"));
-        assert!(!out.contains("flag=clash"));
+        );
+        let s = out.as_str();
+        assert!(s.contains("token=abc"));
+        assert!(s.contains("flag=sing-box"));
+        assert!(!s.contains("flag=clash"));
     }
 
     #[test]
     fn override_wins_over_protocol_default() {
-        let out = with_flag_param("https://example.com/sub", Protocol::Clash, Some("custom"))
-            .unwrap();
-        assert!(out.contains("flag=custom"));
+        let out = with_flag_param(parse("https://example.com/sub"), Protocol::Clash, Some("custom"));
+        assert!(out.as_str().contains("flag=custom"));
     }
 
     #[test]
     fn preserves_fragment() {
-        let out = with_flag_param("https://example.com/sub#frag", Protocol::V2Ray, None).unwrap();
-        assert!(out.contains("flag=v2ray"));
-        assert!(out.ends_with("#frag"));
+        let out = with_flag_param(parse("https://example.com/sub#frag"), Protocol::V2Ray, None);
+        let s = out.as_str();
+        assert!(s.contains("flag=v2ray"));
+        assert!(s.ends_with("#frag"));
     }
 
     #[test]
@@ -219,7 +206,6 @@ mod tests {
     #[test]
     fn effective_ua_uses_flag_override_for_protocol_derivation() {
         let cfg = AppConfig::default();
-        // Source is SingBox but flag override says v2ray → UA matches flag.
         assert_eq!(
             effective_user_agent(Protocol::SingBox, Some("v2ray"), &cfg),
             "v2rayN"
