@@ -3,9 +3,14 @@
 use crate::core::error::{ConvertError, Result};
 use crate::protocols::protocol_format::ProtocolFormat;
 use crate::protocols::source::Config;
+use crate::protocols::ProtocolProcessor;
+
+use super::template_processor::SingboxProcessor;
 
 /// Sing-box format descriptor.
 pub struct SingboxFormat;
+
+static PROCESSOR: SingboxProcessor = SingboxProcessor;
 
 impl ProtocolFormat for SingboxFormat {
     fn name(&self) -> &'static str {
@@ -41,6 +46,10 @@ impl ProtocolFormat for SingboxFormat {
 
     fn parse_config(&self, content: &str) -> Result<Config> {
         Ok(Config::SingBox(parse_singbox_config(content)?))
+    }
+
+    fn processor(&self) -> &'static dyn ProtocolProcessor {
+        &PROCESSOR
     }
 }
 

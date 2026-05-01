@@ -143,12 +143,12 @@ pub trait ProtocolProcessor: Send + Sync {
     fn create_node_config(&self, node: &ProxyServer) -> String;
 }
 
-/// Protocol converter registry: format detection, parsing, and processor lookup.
+/// Protocol converter registry: a single table of `ProtocolFormat`s that
+/// yields descriptor info, parsers, and template processors.
 ///
 /// Uses `IndexMap` so iteration order matches registration order — makes
 /// logging and format-detection fallbacks deterministic.
 pub struct ProtocolRegistry {
-    processors: IndexMap<String, Box<dyn ProtocolProcessor>>,
     formats: IndexMap<String, Box<dyn protocol_format::ProtocolFormat>>,
 }
 
@@ -156,20 +156,15 @@ impl ProtocolRegistry {
     /// Create new empty registry (for tests or custom setup).
     pub fn new() -> Self {
         Self {
-            processors: IndexMap::new(),
             formats: IndexMap::new(),
         }
     }
 
-    /// Register a processor for a format name (e.g. "clash", "singbox", "v2ray").
-    pub fn register(&mut self, format: &str, processor: Box<dyn ProtocolProcessor>) {
-        self.processors.insert(format.to_lowercase(), processor);
-    }
-
-    /// Register a `ProtocolFormat` descriptor.
-    pub fn register_format(&mut self, format: Box<dyn protocol_format::ProtocolFormat>) {
-        let name = format.name().to_string();
-        self.formats.insert(name.to_lowercase(), format);
+    /// Register a protocol. One call per protocol covers both format
+    /// descriptor and template processor.
+    pub fn register(&mut self, format: Box<dyn protocol_format::ProtocolFormat>) {
+        let name = format.name().to_lowercase();
+        self.formats.insert(name, format);
     }
 
     /// Look up a `ProtocolFormat` by canonical name or alias.
@@ -179,7 +174,6 @@ impl ProtocolRegistry {
             .get(&lower)
             .map(|b| b.as_ref())
             .or_else(|| {
-                // Fall back to alias search
                 self.formats
                     .values()
                     .find(|f| f.aliases().iter().any(|a| a.to_lowercase() == lower))
@@ -189,7 +183,7 @@ impl ProtocolRegistry {
 
     /// Get processor by format name. Used by TemplateEngine.
     pub fn get_processor(&self, format: &str) -> Option<&dyn ProtocolProcessor> {
-        self.processors.get(&format.to_lowercase()).map(|b| b.as_ref())
+        self.get_format(format).map(|f| f.processor())
     }
 
     /// Auto-detect input format (delegates to detect module).
@@ -197,18 +191,12 @@ impl ProtocolRegistry {
         detect::detect_format(content)
     }
 
-    /// Initialize protocol registry with built-in processors and format descriptors.
+    /// Initialize protocol registry with the built-in protocols.
     pub fn init() -> Self {
-        use crate::core::source::Protocol;
         let mut registry = Self::new();
-        // Processors (used by TemplateEngine)
-        registry.register(Protocol::Clash.as_format_str(), Box::new(clash::template_processor::ClashProcessor));
-        registry.register(Protocol::SingBox.as_format_str(), Box::new(singbox::template_processor::SingboxProcessor));
-        registry.register(Protocol::V2Ray.as_format_str(), Box::new(v2ray::template_processor::V2RayProcessor));
-        // Format descriptors (validate, parse, default template, metadata)
-        registry.register_format(Box::new(singbox::format::SingboxFormat));
-        registry.register_format(Box::new(clash::format::ClashFormat));
-        registry.register_format(Box::new(v2ray::format::V2RayFormat));
+        registry.register(Box::new(singbox::format::SingboxFormat));
+        registry.register(Box::new(clash::format::ClashFormat));
+        registry.register(Box::new(v2ray::format::V2RayFormat));
         tracing::info!("Protocol registry initialized successfully");
         registry
     }
