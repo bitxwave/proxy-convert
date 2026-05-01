@@ -127,7 +127,7 @@ impl ProtocolProcessor for ClashProcessor {
                 "tag",
                 "method",
             ];
-            for (key, value) in &node.parameters {
+            for (key, value) in node.extras() {
                 if !(is_shadowsocks && key == "udp") && !skip_keys.contains(&key.as_str()) {
                     config.insert(key.clone(), value.clone());
                 }
@@ -149,7 +149,7 @@ impl ClashProcessor {
         config: &mut serde_json::Map<String, serde_json::Value>,
         node: &ProxyServer,
     ) {
-        let params = &node.parameters;
+        let params = &node.extras();
 
         // UUID
         if let Some(uuid) = params.get("uuid") {
@@ -206,7 +206,7 @@ impl ClashProcessor {
         config: &mut serde_json::Map<String, serde_json::Value>,
         node: &ProxyServer,
     ) {
-        let params = &node.parameters;
+        let params = &node.extras();
 
         // Password
         if let Some(password) = &node.password {

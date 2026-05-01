@@ -26,7 +26,14 @@ use std::collections::HashMap;
 pub const FORMAT_SUBSCRIPTION: &str = "subscription";
 pub const FORMAT_PLAIN: &str = "plain";
 
-/// Typed proxy protocol parameters
+/// Typed proxy-protocol parameters.
+///
+/// Each variant carries the typed fields that processors need, plus an
+/// `extras` map for protocol-specific fields that haven't been typed yet
+/// (e.g. obscure transport tweaks). Previously these lived in a flat
+/// `ProxyServer.parameters` HashMap, which duplicated the typed data and
+/// made it unclear which field was canonical — `extras` makes the scope
+/// explicit: "raw leftovers for *this* protocol".
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProxyParams {
     Shadowsocks {
@@ -34,6 +41,7 @@ pub enum ProxyParams {
         udp: Option<bool>,
         plugin: Option<String>,
         plugin_opts: Option<String>,
+        extras: HashMap<String, serde_json::Value>,
     },
     Vmess {
         uuid: String,
@@ -41,28 +49,50 @@ pub enum ProxyParams {
         security: Option<String>,
         tls: Option<TlsParams>,
         transport: Option<TransportParams>,
+        extras: HashMap<String, serde_json::Value>,
     },
     Trojan {
         tls: Option<TlsParams>,
         transport: Option<TransportParams>,
+        extras: HashMap<String, serde_json::Value>,
     },
     Vless {
         uuid: String,
         flow: Option<String>,
         tls: Option<TlsParams>,
         transport: Option<TransportParams>,
+        extras: HashMap<String, serde_json::Value>,
     },
     Hysteria2 {
         obfs_password: Option<String>,
         tls: Option<TlsParams>,
+        extras: HashMap<String, serde_json::Value>,
     },
-    /// Fallback for protocols not yet fully typed
-    Generic,
+    /// Fallback for protocols not yet fully typed.
+    Generic {
+        extras: HashMap<String, serde_json::Value>,
+    },
 }
 
 impl Default for ProxyParams {
     fn default() -> Self {
-        ProxyParams::Generic
+        ProxyParams::Generic { extras: HashMap::new() }
+    }
+}
+
+impl ProxyParams {
+    /// Raw leftover fields for this protocol (e.g. unknown options preserved
+    /// verbatim for pass-through). Typed fields should be read from the
+    /// variant's named fields, not from here.
+    pub fn extras(&self) -> &HashMap<String, serde_json::Value> {
+        match self {
+            ProxyParams::Shadowsocks { extras, .. }
+            | ProxyParams::Vmess { extras, .. }
+            | ProxyParams::Trojan { extras, .. }
+            | ProxyParams::Vless { extras, .. }
+            | ProxyParams::Hysteria2 { extras, .. }
+            | ProxyParams::Generic { extras } => extras,
+        }
     }
 }
 
@@ -87,26 +117,28 @@ pub struct TransportParams {
     pub early_data_header_name: Option<String>,
 }
 
-/// Proxy server information
+/// Proxy server information.
+///
+/// Protocol-specific fields live inside `params` (and, for not-yet-typed
+/// fields, `params.extras()`). There is no flat fallback HashMap on the
+/// server itself — read through the typed variant.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProxyServer {
-    /// Server name
     pub name: String,
-    /// Server type
     pub protocol: String,
-    /// Server address
     pub server: String,
-    /// Server port
     pub port: u16,
-    /// Password (if needed)
     pub password: Option<String>,
-    /// Encryption method (if needed)
     pub method: Option<String>,
-    /// Additional parameters (legacy HashMap, kept for backward compatibility)
-    pub parameters: HashMap<String, serde_json::Value>,
-    /// Typed parameters (new, preferred for reading protocol-specific data)
     #[serde(skip)]
     pub params: ProxyParams,
+}
+
+impl ProxyServer {
+    /// Convenience — raw pass-through fields for this server's protocol.
+    pub fn extras(&self) -> &HashMap<String, serde_json::Value> {
+        self.params.extras()
+    }
 }
 
 /// Protocol processor trait - each protocol implements this for template processing.

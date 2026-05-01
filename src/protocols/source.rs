@@ -69,6 +69,20 @@ impl Source {
             }
         };
 
+        // Build per-variant `extras` from the JSON dump minus fields already
+        // covered by ProxyServer's typed top-level fields.
+        let skip_keys: &[&str] = &[
+            "name", "type", "server", "port", "password", "cipher", "method",
+        ];
+        let mut extras_map: HashMap<String, serde_json::Value> = HashMap::new();
+        if let Some(obj) = proxy_json.as_object() {
+            for (key, value) in obj {
+                if !skip_keys.contains(&key.as_str()) {
+                    extras_map.insert(key.clone(), value.clone());
+                }
+            }
+        }
+
         // Extract typed params directly from the strong type
         let (params, protocol, password, method) = match proxy {
             clash::proxy::Proxy::Ss(ss) => (
@@ -77,6 +91,7 @@ impl Source {
                     udp: ss.udp,
                     plugin: None,
                     plugin_opts: None,
+                    extras: extras_map,
                 },
                 "shadowsocks".to_string(),
                 Some(ss.password.clone()),
@@ -122,6 +137,7 @@ impl Source {
                         security: vmess.cipher.clone(),
                         tls,
                         transport,
+                        extras: extras_map,
                     },
                     "vmess".to_string(),
                     None,
@@ -158,14 +174,14 @@ impl Source {
                     tp
                 });
                 (
-                    ProxyParams::Trojan { tls, transport },
+                    ProxyParams::Trojan { tls, transport, extras: extras_map },
                     "trojan".to_string(),
                     trojan.password.clone(),
                     None,
                 )
             }
             _ => (
-                ProxyParams::Generic,
+                ProxyParams::Generic { extras: extras_map },
                 proxy_json.get("type")?.as_str()?.to_string(),
                 None,
                 None,
@@ -179,22 +195,9 @@ impl Source {
             protocol
         };
 
-        // Build the old-style parameters HashMap from JSON (backward compat)
         let name = proxy.name().to_string();
         let server = proxy_json.get("server")?.as_str()?.to_string();
         let port = proxy_json.get("port")?.as_u64()? as u16;
-
-        let skip_keys = [
-            "name", "type", "server", "port", "password", "cipher", "method",
-        ];
-        let mut parameters = HashMap::new();
-        if let Some(obj) = proxy_json.as_object() {
-            for (key, value) in obj {
-                if !skip_keys.contains(&key.as_str()) {
-                    parameters.insert(key.clone(), value.clone());
-                }
-            }
-        }
 
         Some(ProxyServer {
             name,
@@ -203,7 +206,6 @@ impl Source {
             port,
             password,
             method,
-            parameters,
             params,
         })
     }
@@ -327,13 +329,26 @@ impl Source {
             .and_then(|v| v.as_str())
             .map(String::from);
 
-        // Extract typed params from the strong outbound type
+        // Leftover JSON fields, mapped to the variant's `extras`.
+        let skip_keys: &[&str] = &[
+            "type", "tag", "server", "server_port", "port", "password", "method",
+        ];
+        let mut extras_map: HashMap<String, serde_json::Value> = HashMap::new();
+        if let Some(obj) = outbound_json.as_object() {
+            for (key, value) in obj {
+                if !skip_keys.contains(&key.as_str()) {
+                    extras_map.insert(key.clone(), value.clone());
+                }
+            }
+        }
+
         let params = match outbound {
             singbox::outbound::Outbound::Shadowsocks(ss) => ProxyParams::Shadowsocks {
                 cipher: ss.method.clone(),
                 udp: None,
                 plugin: ss.plugin.clone(),
                 plugin_opts: ss.plugin_opts.clone(),
+                extras: extras_map,
             },
             singbox::outbound::Outbound::Vmess(vmess) => ProxyParams::Vmess {
                 uuid: vmess.uuid.clone(),
@@ -341,48 +356,31 @@ impl Source {
                 security: vmess.security.clone(),
                 tls: Self::extract_singbox_tls_params(&vmess.tls),
                 transport: Self::extract_singbox_transport_params(&vmess.transport),
+                extras: extras_map,
             },
             singbox::outbound::Outbound::Trojan(t) => ProxyParams::Trojan {
                 tls: Self::extract_singbox_tls_params(&t.tls),
                 transport: Self::extract_singbox_transport_params(&t.transport),
+                extras: extras_map,
             },
             singbox::outbound::Outbound::Vless(v) => ProxyParams::Vless {
                 uuid: v.uuid.clone(),
                 flow: v.flow.clone(),
                 tls: Self::extract_singbox_tls_params(&v.tls),
                 transport: Self::extract_singbox_transport_params(&v.transport),
+                extras: extras_map,
             },
             singbox::outbound::Outbound::Hysteria2(h2) => ProxyParams::Hysteria2 {
                 obfs_password: h2.obfs.as_ref().and_then(|o| {
-                    // Serialize Obfs to get the password field
                     serde_json::to_value(o)
                         .ok()
                         .and_then(|v| v.get("password").and_then(|p| p.as_str()).map(String::from))
                 }),
                 tls: Self::extract_singbox_tls_params(&h2.tls),
+                extras: extras_map,
             },
-            _ => ProxyParams::Generic,
+            _ => ProxyParams::Generic { extras: extras_map },
         };
-
-        // Collect additional parameters (backward compat)
-        let mut parameters = HashMap::new();
-        let skip_keys = [
-            "type",
-            "tag",
-            "server",
-            "server_port",
-            "port",
-            "password",
-            "method",
-        ];
-
-        if let Some(obj) = outbound_json.as_object() {
-            for (key, value) in obj {
-                if !skip_keys.contains(&key.as_str()) {
-                    parameters.insert(key.clone(), value.clone());
-                }
-            }
-        }
 
         Some(ProxyServer {
             name: tag,
@@ -391,7 +389,6 @@ impl Source {
             port,
             password,
             method,
-            parameters,
             params,
         })
     }
@@ -427,11 +424,9 @@ impl Source {
         let password = Self::extract_v2ray_password(outbound, protocol);
         let method = Self::extract_v2ray_method(outbound, protocol);
 
-        // Collect additional parameters from extra
-        let mut parameters = HashMap::new();
-        for (key, value) in &outbound.extra {
-            parameters.insert(key.clone(), value.clone());
-        }
+        // V2Ray source isn't fully typed yet — route the extras through
+        // ProxyParams::Generic so processors that need pass-through can read them.
+        let extras = outbound.extra.clone().into_iter().collect();
 
         Some(ProxyServer {
             name: tag,
@@ -440,8 +435,7 @@ impl Source {
             port,
             password,
             method,
-            parameters,
-            params: ProxyParams::Generic,
+            params: ProxyParams::Generic { extras },
         })
     }
 

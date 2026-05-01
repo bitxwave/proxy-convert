@@ -255,14 +255,14 @@ impl ProtocolProcessor for SingboxProcessor {
         }
         // VMess specific handling
         if is_vmess {
-            Self::convert_vmess_params_to_singbox(&mut config, &node.parameters);
+            Self::convert_vmess_params_to_singbox(&mut config, &node.extras());
         } else if is_trojan {
-            Self::convert_trojan_params_to_singbox(&mut config, &node.parameters);
+            Self::convert_trojan_params_to_singbox(&mut config, &node.extras());
         } else {
             // Generic parameter handling
             // Skip fields that are already handled or not needed in sing-box
             let skip_keys = ["cipher", "udp", "name", "type", "server", "port"];
-            for (key, value) in &node.parameters {
+            for (key, value) in node.extras() {
                 if !skip_keys.contains(&key.as_str()) && !(is_shadowsocks && key == "udp") {
                     config.insert(key.clone(), value.clone());
                 }
@@ -418,8 +418,8 @@ mod tests {
                 port: 443,
                 password: None,
                 method: None,
-                parameters: HashMap::new(),
-                params: ProxyParams::Generic,
+                  
+                params: ProxyParams::Generic { extras: HashMap::new() },
             },
             ProxyServer {
                 name: "Node-02".to_string(),
@@ -428,8 +428,8 @@ mod tests {
                 port: 443,
                 password: None,
                 method: None,
-                parameters: HashMap::new(),
-                params: ProxyParams::Generic,
+                  
+                params: ProxyParams::Generic { extras: HashMap::new() },
             },
         ];
 
@@ -447,8 +447,8 @@ mod tests {
             port: 443,
             password: Some("test-password".to_string()),
             method: Some("aes-256-gcm".to_string()),
-            parameters: HashMap::new(),
-            params: ProxyParams::Generic,
+              
+            params: ProxyParams::Generic { extras: HashMap::new() },
         };
 
         let config = processor.create_node_config(&server);
@@ -475,8 +475,8 @@ mod tests {
             port: 443,
             password: Some("test".to_string()),
             method: Some("aes-256-gcm".to_string()),
-            parameters: HashMap::new(),
-            params: ProxyParams::Generic,
+              
+            params: ProxyParams::Generic { extras: HashMap::new() },
         };
 
         let config = processor.create_node_config(&server_with_prefix);
@@ -499,8 +499,8 @@ mod tests {
                 port: 443,
                 password: Some("test".to_string()),
                 method: Some("aes-256-gcm".to_string()),
-                parameters: HashMap::new(),
-                params: ProxyParams::Generic,
+                  
+                params: ProxyParams::Generic { extras: HashMap::new() },
             },
             ProxyServer {
                 name: "singbox1@US-Node-01".to_string(),
@@ -509,8 +509,8 @@ mod tests {
                 port: 443,
                 password: None,
                 method: None,
-                parameters: HashMap::new(),
-                params: ProxyParams::Generic,
+                  
+                params: ProxyParams::Generic { extras: HashMap::new() },
             },
         ];
 

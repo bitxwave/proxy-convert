@@ -82,6 +82,7 @@ fn test_parse_vmess_preserves_uuid_in_params() {
             security,
             tls,
             transport,
+            ..
         } => {
             assert_eq!(uuid, "550e8400-e29b-41d4-a716-446655440000");
             assert_eq!(*alter_id, None);
@@ -100,7 +101,7 @@ fn test_parse_trojan_params_have_no_tls() {
         subscription::parse_plain_text("trojan://secret@host.com:443#TJ\n").unwrap();
     assert_eq!(servers.len(), 1);
     match &servers[0].params {
-        ProxyParams::Trojan { tls, transport } => {
+        ProxyParams::Trojan { tls, transport, .. } => {
             assert!(tls.is_none());
             assert!(transport.is_none());
         }
@@ -121,6 +122,7 @@ fn test_parse_ss_params_have_cipher() {
             udp,
             plugin,
             plugin_opts,
+            ..
         } => {
             assert_eq!(cipher, "chacha20-ietf-poly1305");
             assert_eq!(*udp, None);
@@ -148,6 +150,7 @@ fn test_parse_vless_url() {
             flow,
             tls,
             transport,
+            ..
         } => {
             assert_eq!(uuid, "uuid-123");
             assert!(flow.is_none());
@@ -192,7 +195,7 @@ fn test_parse_hysteria2_url() {
     assert_eq!(servers[0].port, 443);
     assert_eq!(servers[0].password.as_deref(), Some("mypassword"));
     match &servers[0].params {
-        ProxyParams::Hysteria2 { tls, obfs_password } => {
+        ProxyParams::Hysteria2 { tls, obfs_password, .. } => {
             assert!(obfs_password.is_none());
             let tls = tls.as_ref().unwrap();
             assert!(tls.enabled);
