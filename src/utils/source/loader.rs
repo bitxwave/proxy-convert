@@ -46,11 +46,40 @@ impl SourceLoader {
             // Use source flag if set (empty = &flag=), else protocol default
             let url_with_flag =
                 Self::append_flag_to_url(source, &source_meta.source_type, source_meta.flag.as_deref());
-            Self::load_from_url(&url_with_flag, config).await
+            // Pick a User-Agent that subscription panels recognize.
+            // Why: v2board/xboard/sspanel-style panels route responses by UA;
+            // the default reqwest UA is rejected or silently dropped, surfacing
+            // as "address unreachable" even when the host is reachable.
+            let ua = Self::effective_user_agent(&source_meta.source_type, source_meta.flag.as_deref(), config);
+            Self::load_from_url(&url_with_flag, &ua, config).await
         } else {
             // File path: use only the part before ? (query params are kept in source string for reference)
             let path = source.find('?').map(|i| &source[..i]).unwrap_or(source.as_str());
             Self::load_from_file(path)
+        }
+    }
+
+    /// Choose the User-Agent to send with subscription requests.
+    /// Precedence: explicit `config.user_agent` (non-empty) > protocol-matched default.
+    fn effective_user_agent(
+        source_type: &Protocol,
+        flag_override: Option<&str>,
+        config: &AppConfig,
+    ) -> String {
+        let ua = config.user_agent.trim();
+        if !ua.is_empty() {
+            return ua.to_string();
+        }
+        // Derive from flag if the user overrode it, otherwise from source_type.
+        let kind = flag_override
+            .and_then(Protocol::from_str)
+            .unwrap_or(*source_type);
+        // Name-only; subscription panels typically match on the keyword, not the version.
+        // Users who hit a version-strict panel can override via config.user_agent.
+        match kind {
+            Protocol::SingBox => "sing-box".to_string(),
+            Protocol::Clash => "mihomo".to_string(),
+            Protocol::V2Ray => "v2rayN".to_string(),
         }
     }
 
@@ -151,11 +180,12 @@ impl SourceLoader {
     }
 
     /// Load content from URL (uses NetworkError for fetch failures).
-    async fn load_from_url(url: &str, config: &AppConfig) -> Result<String> {
-        tracing::info!("Fetching URL: {}", url);
+    async fn load_from_url(url: &str, user_agent: &str, config: &AppConfig) -> Result<String> {
+        tracing::info!("Fetching URL: {} (UA: {})", url, user_agent);
 
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(config.timeout_seconds))
+            .user_agent(user_agent)
             .build()
             .map_err(|e| ConvertError::network_error(e.to_string().as_str()))?;
 

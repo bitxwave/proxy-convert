@@ -49,7 +49,10 @@ pub struct AppConfig {
 }
 
 fn default_user_agent() -> String {
-    "Mozilla/5.0 (compatible; ProxyConvert/2.0)".to_string()
+    // Empty by default -> SourceLoader picks a protocol-matched UA per-request
+    // (sing-box/mihomo/v2rayN). Subscription panels route by UA, so a generic
+    // UA like "Mozilla/... ProxyConvert/..." gets rejected.
+    String::new()
 }
 
 fn default_timeout() -> u64 {
@@ -229,10 +232,7 @@ mod tests {
     fn test_default_config() {
         let config = AppConfig::default();
 
-        assert_eq!(
-            config.user_agent,
-            "Mozilla/5.0 (compatible; ProxyConvert/2.0)"
-        );
+        assert_eq!(config.user_agent, "");
         assert_eq!(config.timeout_seconds, 30);
         assert_eq!(config.retry_count, 3);
         assert_eq!(config.log_level, "info");
