@@ -4,64 +4,48 @@
 //! without parsing full content. Used by ProtocolRegistry and TemplateEngine.
 
 use crate::core::error::Result;
+use crate::core::source::Protocol;
+use crate::protocols::{FORMAT_PLAIN, FORMAT_SUBSCRIPTION};
 use serde_json::Value as JsonValue;
 
 /// Detect content format. Returns (format_key, description) or None if unknown.
 pub fn detect_format(content: &str) -> Result<Option<(String, String)>> {
     let content = content.trim();
 
+    let structured_hit = |value: &JsonValue, suffix: &str| -> Option<(String, String)> {
+        if is_clash_format(value) {
+            Some((Protocol::Clash.as_format_str().to_string(), format!("Clash configuration{suffix}")))
+        } else if is_singbox_format(value) {
+            Some((Protocol::SingBox.as_format_str().to_string(), format!("Sing-box configuration{suffix}")))
+        } else if is_v2ray_format(value) {
+            Some((Protocol::V2Ray.as_format_str().to_string(), format!("V2Ray configuration{suffix}")))
+        } else {
+            None
+        }
+    };
+
     if let Ok(json_value) = serde_json::from_str::<JsonValue>(content) {
-        if is_clash_format(&json_value) {
-            return Ok(Some((
-                "clash".to_string(),
-                "Clash configuration".to_string(),
-            )));
-        }
-        if is_singbox_format(&json_value) {
-            return Ok(Some((
-                "singbox".to_string(),
-                "Sing-box configuration".to_string(),
-            )));
-        }
-        if is_v2ray_format(&json_value) {
-            return Ok(Some((
-                "v2ray".to_string(),
-                "V2Ray configuration".to_string(),
-            )));
+        if let Some(hit) = structured_hit(&json_value, "") {
+            return Ok(Some(hit));
         }
     }
 
     if let Ok(yaml_value) = serde_yaml::from_str::<JsonValue>(content) {
-        if is_clash_format(&yaml_value) {
-            return Ok(Some((
-                "clash".to_string(),
-                "Clash configuration (YAML)".to_string(),
-            )));
-        }
-        if is_singbox_format(&yaml_value) {
-            return Ok(Some((
-                "singbox".to_string(),
-                "Sing-box configuration (YAML)".to_string(),
-            )));
-        }
-        if is_v2ray_format(&yaml_value) {
-            return Ok(Some((
-                "v2ray".to_string(),
-                "V2Ray configuration (YAML)".to_string(),
-            )));
+        if let Some(hit) = structured_hit(&yaml_value, " (YAML)") {
+            return Ok(Some(hit));
         }
     }
 
     if is_subscription_format(content) {
         return Ok(Some((
-            "subscription".to_string(),
+            FORMAT_SUBSCRIPTION.to_string(),
             "Subscription format (base64)".to_string(),
         )));
     }
 
     if is_plain_text_format(content) {
         return Ok(Some((
-            "plain".to_string(),
+            FORMAT_PLAIN.to_string(),
             "Plain text format".to_string(),
         )));
     }

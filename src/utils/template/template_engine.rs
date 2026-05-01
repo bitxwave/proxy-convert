@@ -26,12 +26,15 @@ impl TemplateEngine {
         }
     }
 
-    /// Add source with complete source information
+    /// Add source with complete source information.
+    /// Unnamed sources get `source_N` (1-based) so multiple unnamed sources
+    /// don't silently overwrite each other under a shared "default" key.
     pub fn add_source(&mut self, source: Source) {
-        self.sources.insert(
-            source.meta.name.as_deref().unwrap_or("default").to_string(),
-            source,
-        );
+        let key = match source.meta.name.as_deref() {
+            Some(name) if !name.is_empty() => name.to_string(),
+            _ => format!("source_{}", self.sources.len() + 1),
+        };
+        self.sources.insert(key, source);
     }
 
     /// Process template interpolation using the given registry for format detection and processor lookup.

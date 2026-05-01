@@ -20,6 +20,10 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Canonical format keys used by detect/loader for non-protocol content.
+pub const FORMAT_SUBSCRIPTION: &str = "subscription";
+pub const FORMAT_PLAIN: &str = "plain";
+
 /// Typed proxy protocol parameters
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProxyParams {
@@ -138,17 +142,20 @@ pub trait ProtocolProcessor: Send + Sync {
 }
 
 /// Protocol converter registry: format detection, parsing, and processor lookup.
+///
+/// Uses `IndexMap` so iteration order matches registration order — makes
+/// logging and format-detection fallbacks deterministic.
 pub struct ProtocolRegistry {
-    processors: HashMap<String, Box<dyn ProtocolProcessor>>,
-    formats: HashMap<String, Box<dyn protocol_format::ProtocolFormat>>,
+    processors: IndexMap<String, Box<dyn ProtocolProcessor>>,
+    formats: IndexMap<String, Box<dyn protocol_format::ProtocolFormat>>,
 }
 
 impl ProtocolRegistry {
     /// Create new empty registry (for tests or custom setup).
     pub fn new() -> Self {
         Self {
-            processors: HashMap::new(),
-            formats: HashMap::new(),
+            processors: IndexMap::new(),
+            formats: IndexMap::new(),
         }
     }
 
@@ -190,11 +197,12 @@ impl ProtocolRegistry {
 
     /// Initialize protocol registry with built-in processors and format descriptors.
     pub fn init() -> Self {
+        use crate::core::source::Protocol;
         let mut registry = Self::new();
         // Processors (used by TemplateEngine)
-        registry.register("clash", Box::new(clash::template_processor::ClashProcessor));
-        registry.register("singbox", Box::new(singbox::template_processor::SingboxProcessor));
-        registry.register("v2ray", Box::new(v2ray::template_processor::V2RayProcessor));
+        registry.register(Protocol::Clash.as_format_str(), Box::new(clash::template_processor::ClashProcessor));
+        registry.register(Protocol::SingBox.as_format_str(), Box::new(singbox::template_processor::SingboxProcessor));
+        registry.register(Protocol::V2Ray.as_format_str(), Box::new(v2ray::template_processor::V2RayProcessor));
         // Format descriptors (validate, parse, default template, metadata)
         registry.register_format(Box::new(singbox::format::SingboxFormat));
         registry.register_format(Box::new(clash::format::ClashFormat));

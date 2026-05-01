@@ -3,7 +3,7 @@
 use crate::core::source::{Protocol, SourceMeta};
 use crate::core::config::AppConfig;
 use crate::core::error::{ConvertError, Result};
-use crate::protocols::ProtocolRegistry;
+use crate::protocols::{ProtocolRegistry, FORMAT_PLAIN, FORMAT_SUBSCRIPTION};
 use crate::utils::source::parser::{Config, Source};
 use std::path::Path;
 
@@ -20,15 +20,10 @@ impl SourceLoader {
         let content = Self::load_content_from_source(source_meta, config).await?;
 
         // Determine the format
-        let detected_format = if let Some(fmt) = &source_meta.format {
-            fmt.clone()
-        } else {
-            match &source_meta.source_type {
-                Protocol::Clash => "clash".to_string(),
-                Protocol::SingBox => "singbox".to_string(),
-                Protocol::V2Ray => "v2ray".to_string(),
-            }
-        };
+        let detected_format = source_meta
+            .format
+            .clone()
+            .unwrap_or_else(|| source_meta.source_type.as_format_str().to_string());
 
         // Parse configuration based on detected format
         let parsed_config = Self::parse_config(&content, &detected_format, registry)?;
@@ -90,12 +85,12 @@ impl SourceLoader {
         source_type: &Protocol,
         flag_override: Option<&str>,
     ) -> String {
+        // For the URL flag parameter, panels commonly expect "sing-box" (hyphenated).
         let flag_value = match flag_override {
             Some(s) => s.to_string(),
             None => match source_type {
-                Protocol::Clash => "clash".to_string(),
                 Protocol::SingBox => "sing-box".to_string(),
-                Protocol::V2Ray => "v2ray".to_string(),
+                other => other.as_format_str().to_string(),
             },
         };
 
@@ -224,11 +219,11 @@ impl SourceLoader {
     /// are dispatched through the registry's `ProtocolFormat` trait.
     fn parse_config(content: &str, format: &str, registry: &ProtocolRegistry) -> Result<Config> {
         match format.to_lowercase().as_str() {
-            "subscription" => {
+            FORMAT_SUBSCRIPTION => {
                 let servers = registry.parse_subscription_to_servers(content)?;
                 Ok(Config::Subscription(servers))
             }
-            "plain" => {
+            FORMAT_PLAIN => {
                 let servers = registry.parse_plain_text_to_servers(content)?;
                 Ok(Config::Plain(servers))
             }

@@ -83,14 +83,6 @@ pub enum Commands {
     Version,
 }
 
-#[derive(ValueEnum, Clone, Debug)]
-pub enum OutputFormat {
-    /// JSON format
-    Json,
-    /// YAML format
-    Yaml,
-}
-
 #[derive(ValueEnum, Clone, Copy, Debug)]
 pub enum LogLevel {
     /// Error information
