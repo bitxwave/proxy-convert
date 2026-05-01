@@ -1,11 +1,12 @@
 //! Source loader for loading and parsing configurations.
 
 use crate::core::config::AppConfig;
-use crate::core::error::{ConvertError, Result};
+use crate::core::error::{ConvertError, NetworkErrorKind, Result};
 use crate::core::source::{Protocol, SourceLocation, SourceMeta};
 use crate::protocols::source::{Config, Source};
 use crate::protocols::{ProtocolRegistry, FORMAT_PLAIN, FORMAT_SUBSCRIPTION};
 use std::str::FromStr;
+use std::time::Duration;
 use url::Url;
 
 pub struct SourceLoader;
@@ -50,32 +51,42 @@ impl SourceLoader {
     }
 
     async fn load_from_url(url: &str, user_agent: &str, config: &AppConfig) -> Result<String> {
-        tracing::info!("Fetching URL: {} (UA: {})", url, user_agent);
-
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(config.timeout_seconds))
+            .timeout(Duration::from_secs(config.timeout_seconds))
             .user_agent(user_agent)
             .build()
-            .map_err(|e| ConvertError::network_error(&e.to_string()))?;
+            .map_err(|e| ConvertError::network(NetworkErrorKind::Other, Some(url.into()), e.to_string()))?;
 
-        let response = client
-            .get(url)
-            .send()
-            .await
-            .map_err(|e| ConvertError::network_error(&e.to_string()))?;
-
-        if !response.status().is_success() {
-            return Err(ConvertError::network_error(&format!(
-                "Failed to fetch URL: {} - Status: {}",
-                url,
-                response.status()
-            )));
+        // Retry transient failures (timeout / connect / 5xx / 429). Attempts
+        // cap at `config.retry_count + 1` total (first try + N retries).
+        let mut attempt: u32 = 0;
+        let max_attempts = config.retry_count.saturating_add(1);
+        loop {
+            attempt += 1;
+            tracing::info!(
+                "Fetching URL (attempt {}/{}): {} (UA: {})",
+                attempt, max_attempts, url, user_agent
+            );
+            match fetch_once(&client, url).await {
+                Ok(body) => return Ok(body),
+                Err(err) => {
+                    let retryable = matches!(&err,
+                        ConvertError::NetworkError { kind, .. } if kind.is_retryable());
+                    if !retryable || attempt >= max_attempts {
+                        return Err(err);
+                    }
+                    // Exponential backoff: 250ms, 500ms, 1000ms, capped at 4s.
+                    let backoff = Duration::from_millis(
+                        (250u64 * (1u64 << (attempt - 1).min(4))).min(4000),
+                    );
+                    tracing::warn!(
+                        "Fetch attempt {} failed ({}), retrying after {:?}",
+                        attempt, err, backoff
+                    );
+                    tokio::time::sleep(backoff).await;
+                }
+            }
         }
-
-        response
-            .text()
-            .await
-            .map_err(|e| ConvertError::network_error(&e.to_string()))
     }
 
     fn load_from_file(path: &std::path::Path) -> Result<String> {
@@ -99,6 +110,36 @@ impl SourceLoader {
             }
         }
     }
+}
+
+/// Perform a single HTTP GET, translating reqwest errors into a classified
+/// `ConvertError::NetworkError` so retry logic and user-facing hints can act
+/// on the kind.
+async fn fetch_once(client: &reqwest::Client, url: &str) -> Result<String> {
+    let response = client.get(url).send().await.map_err(|e| {
+        let kind = if e.is_timeout() {
+            NetworkErrorKind::Timeout
+        } else if e.is_connect() {
+            NetworkErrorKind::Connect
+        } else {
+            NetworkErrorKind::Other
+        };
+        ConvertError::network(kind, Some(url.into()), e.to_string())
+    })?;
+
+    let status = response.status();
+    if !status.is_success() {
+        return Err(ConvertError::network(
+            NetworkErrorKind::Status(status.as_u16()),
+            Some(url.into()),
+            format!("HTTP {}", status),
+        ));
+    }
+
+    response
+        .text()
+        .await
+        .map_err(|e| ConvertError::network(NetworkErrorKind::Other, Some(url.into()), e.to_string()))
 }
 
 /// Choose the User-Agent to send with subscription requests.

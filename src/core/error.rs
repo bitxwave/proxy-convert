@@ -2,6 +2,37 @@
 
 use thiserror::Error;
 
+/// Why a network fetch failed. Kept structured so retry logic can classify
+/// transient vs permanent failures and so user-facing messages can be
+/// targeted (e.g. a 403 on a subscription URL suggests User-Agent filtering,
+/// not an unreachable host).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NetworkErrorKind {
+    /// HTTP request timed out (connect or read timeout).
+    Timeout,
+    /// Couldn't open a connection (DNS failure, refused, unreachable).
+    Connect,
+    /// Server returned a non-2xx HTTP status code.
+    Status(u16),
+    /// TLS handshake / certificate problem.
+    Tls,
+    /// Everything else (SDK-level decode errors etc.).
+    Other,
+}
+
+impl NetworkErrorKind {
+    /// Transient failures are retryable with backoff; permanent ones aren't.
+    pub fn is_retryable(&self) -> bool {
+        match self {
+            NetworkErrorKind::Timeout | NetworkErrorKind::Connect => true,
+            // 5xx = server-side / gateway issue, worth retrying.
+            // 429 = rate-limited — retry with backoff.
+            NetworkErrorKind::Status(code) => *code >= 500 || *code == 429,
+            NetworkErrorKind::Tls | NetworkErrorKind::Other => false,
+        }
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum ConvertError {
     #[error("JSON parse error: {0}")]
@@ -19,8 +50,12 @@ pub enum ConvertError {
     #[error("Source error: {0}")]
     SourceError(String),
 
-    #[error("Network error: {0}")]
-    NetworkError(String),
+    #[error("Network error: {detail}")]
+    NetworkError {
+        kind: NetworkErrorKind,
+        url: Option<String>,
+        detail: String,
+    },
 
     #[error("Config error: {0}")]
     ConfigValidationError(String),
@@ -41,34 +76,55 @@ impl ConvertError {
         Self::SourceError(msg.to_string())
     }
 
+    /// Convenience for unclassified network errors (back-compat entry point).
     pub fn network_error(msg: &str) -> Self {
-        Self::NetworkError(msg.to_string())
+        Self::NetworkError {
+            kind: NetworkErrorKind::Other,
+            url: None,
+            detail: msg.to_string(),
+        }
     }
 
-    /// Format error for display
+    pub fn network(kind: NetworkErrorKind, url: Option<String>, detail: impl Into<String>) -> Self {
+        Self::NetworkError {
+            kind,
+            url,
+            detail: detail.into(),
+        }
+    }
+
+    /// Format error for display with user-facing hints.
     pub fn format_error(&self) -> String {
         match self {
             ConvertError::FileNotFound(path) => {
                 format!("File not found: {}\n  Please check if the file path is correct.", path)
             }
-            ConvertError::IoError(e) => {
-                format!("IO error: {}", e)
-            }
+            ConvertError::IoError(e) => format!("IO error: {}", e),
             ConvertError::JsonParseError(e) => {
                 format!("JSON parse error: {}\n  Please check if the file format is valid JSON.", e)
             }
-            ConvertError::TemplateError(msg) => {
-                format!("Template error: {}", msg)
+            ConvertError::TemplateError(msg) => format!("Template error: {}", msg),
+            ConvertError::SourceError(msg) => format!("Source error: {}", msg),
+            ConvertError::NetworkError { kind, url, detail } => {
+                let hint = match kind {
+                    NetworkErrorKind::Timeout => "The request took too long. Try increasing `timeout_seconds` in config, or check that the URL is reachable.",
+                    NetworkErrorKind::Connect => "Could not reach the server. Check DNS resolution, proxy settings, and firewall rules.",
+                    NetworkErrorKind::Status(403) | NetworkErrorKind::Status(401) => {
+                        "The server rejected the request. Subscription panels often filter by User-Agent — try setting `user_agent` in config."
+                    }
+                    NetworkErrorKind::Status(404) => "Subscription not found. Double-check the URL path.",
+                    NetworkErrorKind::Status(429) => "Rate limited. The tool will back off automatically; retry later if this persists.",
+                    NetworkErrorKind::Status(code) if *code >= 500 => "The server returned a 5xx error. Often transient — try again shortly.",
+                    NetworkErrorKind::Status(_) => "Unexpected HTTP status.",
+                    NetworkErrorKind::Tls => "TLS handshake failed. The server's certificate may be invalid or your system CA bundle may be outdated.",
+                    NetworkErrorKind::Other => "Please check your network connection.",
+                };
+                match url {
+                    Some(u) => format!("Network error: {}\n  URL: {}\n  {}", detail, u, hint),
+                    None => format!("Network error: {}\n  {}", detail, hint),
+                }
             }
-            ConvertError::SourceError(msg) => {
-                format!("Source error: {}", msg)
-            }
-            ConvertError::NetworkError(msg) => {
-                format!("Network error: {}\n  Please check your network connection.", msg)
-            }
-            ConvertError::ConfigValidationError(msg) => {
-                format!("Config error: {}", msg)
-            }
+            ConvertError::ConfigValidationError(msg) => format!("Config error: {}", msg),
         }
     }
 }
@@ -104,7 +160,6 @@ mod tests {
     fn test_convert_error_from_serde_json() {
         let json_error = serde_json::from_str::<serde_json::Value>("invalid json");
         assert!(json_error.is_err());
-
         if let Err(json_err) = json_error {
             let convert_error: ConvertError = json_err.into();
             match convert_error {
@@ -118,7 +173,6 @@ mod tests {
     fn test_convert_error_from_io() {
         let io_error = std::fs::read_to_string("/nonexistent/file");
         assert!(io_error.is_err());
-
         if let Err(io_err) = io_error {
             let convert_error: ConvertError = io_err.into();
             match convert_error {
@@ -133,11 +187,9 @@ mod tests {
         fn test_function() -> Result<String> {
             Ok("test".to_string())
         }
-
         fn test_error_function() -> Result<String> {
             Err(ConvertError::ConfigValidationError("test error".to_string()))
         }
-
         assert!(test_function().is_ok());
         assert!(test_error_function().is_err());
     }
@@ -148,5 +200,28 @@ mod tests {
         let formatted = error.format_error();
         assert!(formatted.contains("File not found"));
         assert!(formatted.contains("test.json"));
+    }
+
+    #[test]
+    fn network_retry_classification() {
+        assert!(NetworkErrorKind::Timeout.is_retryable());
+        assert!(NetworkErrorKind::Connect.is_retryable());
+        assert!(NetworkErrorKind::Status(503).is_retryable());
+        assert!(NetworkErrorKind::Status(429).is_retryable());
+        assert!(!NetworkErrorKind::Status(404).is_retryable());
+        assert!(!NetworkErrorKind::Status(403).is_retryable());
+        assert!(!NetworkErrorKind::Tls.is_retryable());
+    }
+
+    #[test]
+    fn status_403_hint_mentions_user_agent() {
+        let err = ConvertError::network(
+            NetworkErrorKind::Status(403),
+            Some("https://example.com".into()),
+            "Forbidden",
+        );
+        let msg = err.format_error();
+        assert!(msg.contains("User-Agent"), "403 hint should mention User-Agent filtering, got: {msg}");
+        assert!(msg.contains("https://example.com"));
     }
 }
