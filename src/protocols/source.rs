@@ -144,6 +144,31 @@ impl Source {
                     None,
                 )
             }
+            clash::proxy::Proxy::Anytls(at) => {
+                // mihomo's anytls is always TLS. Build TlsParams from flat fields.
+                let tls = Some(TlsParams {
+                    enabled: true,
+                    server_name: at.sni.clone(),
+                    insecure: at.skip_cert_verify,
+                    alpn: if at.alpn.is_empty() {
+                        None
+                    } else {
+                        Some(at.alpn.clone())
+                    },
+                });
+                (
+                    ProxyParams::AnyTls {
+                        tls,
+                        idle_session_check_interval: at.idle_session_check_interval.clone(),
+                        idle_session_timeout: at.idle_session_timeout.clone(),
+                        min_idle_session: at.min_idle_session,
+                        extras: extras_map,
+                    },
+                    "anytls".to_string(),
+                    Some(at.password.clone()),
+                    None,
+                )
+            }
             clash::proxy::Proxy::Trojan(trojan) => {
                 let tls = Some(TlsParams {
                     enabled: true,
@@ -377,6 +402,19 @@ impl Source {
                         .and_then(|v| v.get("password").and_then(|p| p.as_str()).map(String::from))
                 }),
                 tls: Self::extract_singbox_tls_params(&h2.tls),
+                extras: extras_map,
+            },
+            singbox::outbound::Outbound::Anytls(at) => ProxyParams::AnyTls {
+                tls: Self::extract_singbox_tls_params(&Some(at.tls.clone())),
+                idle_session_check_interval: at
+                    .idle_session_check_interval
+                    .clone()
+                    .map(serde_json::Value::String),
+                idle_session_timeout: at
+                    .idle_session_timeout
+                    .clone()
+                    .map(serde_json::Value::String),
+                min_idle_session: at.min_idle_session,
                 extras: extras_map,
             },
             _ => ProxyParams::Generic { extras: extras_map },

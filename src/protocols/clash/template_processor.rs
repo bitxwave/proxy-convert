@@ -69,6 +69,7 @@ impl ProtocolProcessor for ClashProcessor {
         let is_shadowsocks = node.protocol == "shadowsocks" || node.protocol == "ss";
         let is_vmess = node.protocol == "vmess";
         let is_trojan = node.protocol == "trojan";
+        let is_anytls = node.protocol == "anytls";
 
         // For Clash, shadowsocks type should be "ss"
         let protocol_type = if node.protocol == "shadowsocks" {
@@ -95,6 +96,8 @@ impl ProtocolProcessor for ClashProcessor {
             self.convert_vmess_params_to_clash(&mut config, node);
         } else if is_trojan {
             self.convert_trojan_params_to_clash(&mut config, node);
+        } else if is_anytls {
+            self.convert_anytls_params_to_clash(&mut config, node);
         } else {
             // Generic handling for other protocols
             if let Some(method) = &node.method {
@@ -197,6 +200,79 @@ impl ClashProcessor {
         // Transport handling — delegate to shared converter
         if let Some(transport) = params.get("transport") {
             crate::protocols::transport_converter::singbox_transport_to_clash(config, transport);
+        }
+    }
+
+    /// Convert AnyTLS parameters to Clash (mihomo) format.
+    /// Maps sing-box-style nested `tls` and snake_case idle-session fields back
+    /// to mihomo's flat kebab-case fields.
+    fn convert_anytls_params_to_clash(
+        &self,
+        config: &mut serde_json::Map<String, serde_json::Value>,
+        node: &ProxyServer,
+    ) {
+        let params = &node.extras();
+
+        if let Some(password) = &node.password {
+            config.insert(
+                "password".to_string(),
+                serde_json::Value::String(password.clone()),
+            );
+        }
+
+        // udp defaults to true; matches what we do for trojan/ss.
+        config.insert("udp".to_string(), serde_json::Value::Bool(true));
+
+        // TLS handling — reuse the trojan->clash converter (anytls is always TLS).
+        if let Some(tls) = params.get("tls") {
+            crate::protocols::transport_converter::singbox_tls_to_clash(config, tls);
+        } else {
+            // Source had flat fields — propagate them through if present.
+            for (snake, kebab) in [
+                ("sni", "sni"),
+                ("server_name", "sni"),
+                ("skip-cert-verify", "skip-cert-verify"),
+                ("alpn", "alpn"),
+            ] {
+                if let Some(v) = params.get(snake) {
+                    config.entry(kebab.to_string()).or_insert_with(|| v.clone());
+                }
+            }
+        }
+
+        // Idle session knobs: prefer snake_case (sing-box source), fall back to
+        // kebab-case (clash source). Strip "Ns" suffix back to integer where
+        // possible so the output looks idiomatic in mihomo YAML.
+        let normalize_to_clash = |v: &serde_json::Value| -> serde_json::Value {
+            if let Some(s) = v.as_str() {
+                if let Some(secs) = s.strip_suffix('s').and_then(|n| n.parse::<u64>().ok()) {
+                    return serde_json::Value::Number(serde_json::Number::from(secs));
+                }
+                serde_json::Value::String(s.to_string())
+            } else {
+                v.clone()
+            }
+        };
+        for (snake, kebab) in [
+            ("idle_session_check_interval", "idle-session-check-interval"),
+            ("idle_session_timeout", "idle-session-timeout"),
+        ] {
+            if let Some(v) = params.get(snake).or_else(|| params.get(kebab)) {
+                config.insert(kebab.to_string(), normalize_to_clash(v));
+            }
+        }
+        if let Some(v) = params
+            .get("min_idle_session")
+            .or_else(|| params.get("min-idle-session"))
+        {
+            if v.is_number() {
+                config.insert("min-idle-session".to_string(), v.clone());
+            }
+        }
+
+        // client-fingerprint passes through as-is if present.
+        if let Some(v) = params.get("client-fingerprint").or_else(|| params.get("client_fingerprint")) {
+            config.insert("client-fingerprint".to_string(), v.clone());
         }
     }
 

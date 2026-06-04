@@ -290,6 +290,152 @@ fn test_extract_clash_shadowsocks() {
     }
 }
 
+// ── AnyTLS extraction tests ──────────────────────────────────────────────
+
+#[test]
+fn test_extract_clash_anytls() {
+    let config: clash::Config = serde_json::from_value(serde_json::json!({
+        "proxies": [{
+            "name": "anytls-test",
+            "type": "anytls",
+            "server": "1.2.3.4",
+            "port": 443,
+            "password": "secret",
+            "udp": true,
+            "sni": "example.com",
+            "alpn": ["h2", "http/1.1"],
+            "skip-cert-verify": true,
+            "client-fingerprint": "chrome",
+            "idle-session-check-interval": 30,
+            "idle-session-timeout": 30,
+            "min-idle-session": 5
+        }]
+    }))
+    .unwrap();
+    let source = make_source(Config::Clash(config), Protocol::Clash);
+    let servers = source.extract_servers().unwrap();
+    assert_eq!(servers.len(), 1);
+    assert_eq!(servers[0].protocol, "anytls");
+    assert_eq!(servers[0].password.as_deref(), Some("secret"));
+    match &servers[0].params {
+        ProxyParams::AnyTls {
+            tls,
+            min_idle_session,
+            idle_session_timeout,
+            ..
+        } => {
+            let tls = tls.as_ref().expect("tls");
+            assert!(tls.enabled);
+            assert_eq!(tls.server_name.as_deref(), Some("example.com"));
+            assert_eq!(tls.insecure, Some(true));
+            assert_eq!(*min_idle_session, Some(5));
+            assert_eq!(idle_session_timeout.as_ref().and_then(|v| v.as_u64()), Some(30));
+        }
+        _ => panic!("Expected AnyTls params"),
+    }
+}
+
+#[test]
+fn test_extract_singbox_anytls() {
+    let config: singbox::Config = serde_json::from_value(serde_json::json!({
+        "inbounds": [],
+        "outbounds": [
+            {
+                "type": "anytls",
+                "tag": "anytls-out",
+                "server": "1.2.3.4",
+                "server_port": 8443,
+                "password": "secret",
+                "idle_session_check_interval": "30s",
+                "idle_session_timeout": "30s",
+                "min_idle_session": 5,
+                "tls": { "enabled": true, "server_name": "example.com", "insecure": false }
+            }
+        ]
+    }))
+    .unwrap();
+    let source = make_source(Config::SingBox(config), Protocol::SingBox);
+    let servers = source.extract_servers().unwrap();
+    assert_eq!(servers.len(), 1);
+    assert_eq!(servers[0].protocol, "anytls");
+    assert_eq!(servers[0].password.as_deref(), Some("secret"));
+    assert_eq!(servers[0].port, 8443);
+    match &servers[0].params {
+        ProxyParams::AnyTls { tls, min_idle_session, .. } => {
+            let tls = tls.as_ref().expect("tls");
+            assert!(tls.enabled);
+            assert_eq!(tls.server_name.as_deref(), Some("example.com"));
+            assert_eq!(*min_idle_session, Some(5));
+        }
+        _ => panic!("Expected AnyTls params"),
+    }
+}
+
+#[test]
+fn test_clash_anytls_to_singbox_node_config() {
+    use proxy_convert::protocols::singbox::template_processor::SingboxProcessor;
+    use proxy_convert::protocols::ProtocolProcessor;
+
+    let config: clash::Config = serde_json::from_value(serde_json::json!({
+        "proxies": [{
+            "name": "anytls-1",
+            "type": "anytls",
+            "server": "host.example.com",
+            "port": 443,
+            "password": "pw",
+            "sni": "host.example.com",
+            "skip-cert-verify": false,
+            "alpn": ["h2"],
+            "idle-session-check-interval": 30,
+            "idle-session-timeout": 30,
+            "min-idle-session": 0
+        }]
+    }))
+    .unwrap();
+    let source = make_source(Config::Clash(config), Protocol::Clash);
+    let servers = source.extract_servers().unwrap();
+    let processor = SingboxProcessor;
+    let node_json = processor.create_node_config(&servers[0]);
+    let parsed: serde_json::Value = serde_json::from_str(&node_json).unwrap();
+    assert_eq!(parsed["type"], "anytls");
+    assert_eq!(parsed["server"], "host.example.com");
+    assert_eq!(parsed["server_port"], 443);
+    assert_eq!(parsed["password"], "pw");
+    assert_eq!(parsed["tls"]["enabled"], true);
+    assert_eq!(parsed["tls"]["server_name"], "host.example.com");
+    assert_eq!(parsed["tls"]["alpn"][0], "h2");
+    assert_eq!(parsed["idle_session_check_interval"], "30s");
+    assert_eq!(parsed["idle_session_timeout"], "30s");
+    assert_eq!(parsed["min_idle_session"], 0);
+}
+
+#[test]
+fn test_parse_anytls_url() {
+    use proxy_convert::protocols::subscription::parse_proxy_url;
+    let s = parse_proxy_url("anytls://letmein@example.com:8443/?sni=real.example.com&insecure=1#node1")
+        .unwrap()
+        .expect("parsed");
+    assert_eq!(s.protocol, "anytls");
+    assert_eq!(s.server, "example.com");
+    assert_eq!(s.port, 8443);
+    assert_eq!(s.password.as_deref(), Some("letmein"));
+    assert_eq!(s.name, "node1");
+    match &s.params {
+        ProxyParams::AnyTls { tls, .. } => {
+            let tls = tls.as_ref().expect("tls");
+            assert_eq!(tls.server_name.as_deref(), Some("real.example.com"));
+            assert_eq!(tls.insecure, Some(true));
+        }
+        _ => panic!("Expected AnyTls"),
+    }
+
+    // Default port
+    let s2 = parse_proxy_url("anytls://letmein@example.com/?sni=real.example.com")
+        .unwrap()
+        .expect("parsed");
+    assert_eq!(s2.port, 443);
+}
+
 #[test]
 fn test_extract_clash_multiple_proxies() {
     let config: clash::Config = serde_json::from_value(serde_json::json!({
