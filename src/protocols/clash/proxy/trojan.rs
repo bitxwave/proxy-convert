@@ -17,6 +17,7 @@ pub struct Trojan {
     pub network: Option<String>,
     pub udp: Option<bool>,
     pub sni: Option<String>,
+    #[serde(default)]
     pub alpn: Vec<String>,
     #[serde(rename = "skip-cert-verify")]
     pub skip_cert_verify: Option<bool>,
