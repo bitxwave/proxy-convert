@@ -52,6 +52,8 @@ pub fn parse_proxy_url(url: &str) -> Result<Option<ProxyServer>> {
         parse_shadowsocks_url(url)
     } else if url.starts_with("hysteria2://") || url.starts_with("hy2://") {
         parse_hysteria2_url(url)
+    } else if url.starts_with("anytls://") {
+        parse_anytls_url(url)
     } else {
         tracing::warn!("Unsupported proxy URL: {}", url);
         Ok(None)
@@ -387,6 +389,110 @@ fn parse_hysteria2_url(url: &str) -> Result<Option<ProxyServer>> {
         params: ProxyParams::Hysteria2 {
             obfs_password,
             tls,
+            extras: HashMap::new(),
+        },
+    }))
+}
+
+/// Parse `anytls://password@host[:port]/?sni=...&insecure=0|1#name`.
+/// Per https://github.com/anytls/anytls-go/blob/main/docs/uri_scheme.md the
+/// port defaults to 443 when omitted.
+fn parse_anytls_url(url: &str) -> Result<Option<ProxyServer>> {
+    let body = url.strip_prefix("anytls://").unwrap_or("");
+
+    // Split off the fragment (#name) first; it's allowed to contain anything.
+    let (head, name) = match body.find('#') {
+        Some(pos) => {
+            let raw = &body[pos + 1..];
+            let decoded = urlencoding::decode(raw)
+                .unwrap_or_else(|_| std::borrow::Cow::Borrowed(raw))
+                .to_string();
+            (&body[..pos], decoded)
+        }
+        None => (body, String::new()),
+    };
+
+    // Userinfo (password) → host[:port] → optional path/query
+    let at_pos = match head.find('@') {
+        Some(p) => p,
+        None => return Ok(None),
+    };
+    let password_raw = &head[..at_pos];
+    let password = urlencoding::decode(password_raw)
+        .unwrap_or_else(|_| std::borrow::Cow::Borrowed(password_raw))
+        .to_string();
+    let after_auth = &head[at_pos + 1..];
+
+    // Strip optional "/" between authority and "?...". The scheme accepts both
+    // "anytls://pw@host:port?x=1" and "anytls://pw@host:port/?x=1".
+    let (authority, query_str) = match after_auth.find('?') {
+        Some(q) => {
+            let auth_raw = &after_auth[..q];
+            let auth = auth_raw.strip_suffix('/').unwrap_or(auth_raw);
+            (auth, Some(&after_auth[q + 1..]))
+        }
+        None => {
+            let auth = after_auth.strip_suffix('/').unwrap_or(after_auth);
+            (auth, None)
+        }
+    };
+
+    // host[:port] — handle IPv6 in brackets.
+    let (server, port) = if let Some(stripped) = authority.strip_prefix('[') {
+        // [v6]:port or [v6]
+        let close = match stripped.find(']') {
+            Some(p) => p,
+            None => return Ok(None),
+        };
+        let host = &stripped[..close];
+        let after = &stripped[close + 1..];
+        let port = if let Some(rest) = after.strip_prefix(':') {
+            rest.parse::<u16>().unwrap_or(443)
+        } else {
+            443
+        };
+        (host.to_string(), port)
+    } else if let Some(colon) = authority.rfind(':') {
+        let host = &authority[..colon];
+        let port = authority[colon + 1..].parse::<u16>().unwrap_or(443);
+        (host.to_string(), port)
+    } else {
+        (authority.to_string(), 443u16)
+    };
+
+    let mut sni = None;
+    let mut insecure = None;
+    if let Some(qs) = query_str {
+        for (k, v) in url::form_urlencoded::parse(qs.as_bytes()) {
+            match k.as_ref() {
+                "sni" | "peer" => sni = Some(v.into_owned()),
+                "insecure" | "allowInsecure" => {
+                    insecure = Some(v == "1" || v == "true");
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let tls = Some(crate::protocols::TlsParams {
+        enabled: true,
+        server_name: sni,
+        insecure,
+        alpn: None,
+    });
+
+    Ok(Some(ProxyServer {
+        name,
+        protocol: "anytls".to_string(),
+        server,
+        port,
+        password: Some(password),
+        method: None,
+        params: ProxyParams::AnyTls {
+            tls,
+            idle_session_check_interval: None,
+            idle_session_timeout: None,
+            min_idle_session: None,
             extras: HashMap::new(),
         },
     }))

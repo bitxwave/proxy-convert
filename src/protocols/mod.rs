@@ -68,6 +68,17 @@ pub enum ProxyParams {
         tls: Option<TlsParams>,
         extras: HashMap<String, serde_json::Value>,
     },
+    /// AnyTLS protocol (https://github.com/anytls/anytls-go).
+    /// idle_session_* fields preserve raw values (string/int) so we can re-emit
+    /// either Clash (kebab-case, often integer seconds) or sing-box
+    /// (snake_case, duration strings) without lossy conversion.
+    AnyTls {
+        tls: Option<TlsParams>,
+        idle_session_check_interval: Option<serde_json::Value>,
+        idle_session_timeout: Option<serde_json::Value>,
+        min_idle_session: Option<u32>,
+        extras: HashMap<String, serde_json::Value>,
+    },
     /// Fallback for protocols not yet fully typed.
     Generic {
         extras: HashMap<String, serde_json::Value>,
@@ -91,6 +102,7 @@ impl ProxyParams {
             | ProxyParams::Trojan { extras, .. }
             | ProxyParams::Vless { extras, .. }
             | ProxyParams::Hysteria2 { extras, .. }
+            | ProxyParams::AnyTls { extras, .. }
             | ProxyParams::Generic { extras } => extras,
         }
     }

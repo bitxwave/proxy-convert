@@ -1,3 +1,4 @@
+pub mod anytls;
 pub mod common;
 pub mod http;
 pub mod shadowsocks;
@@ -9,6 +10,7 @@ pub mod vmess;
 
 use serde::{Deserialize, Serialize};
 
+pub use anytls::AnyTls;
 pub use http::Http;
 pub use shadowsocks::Shadowsocks;
 pub use shadowsocks_r::ShadowsocksR;
@@ -27,6 +29,7 @@ pub enum Proxy {
     Http(Http),
     Snell(Snell),
     Trojan(Trojan),
+    Anytls(AnyTls),
 }
 
 impl Proxy {
@@ -39,6 +42,7 @@ impl Proxy {
             Proxy::Http(http) => &http.name,
             Proxy::Snell(snell) => &snell.name,
             Proxy::Trojan(trojan) => &trojan.name,
+            Proxy::Anytls(anytls) => &anytls.name,
         }
     }
 }

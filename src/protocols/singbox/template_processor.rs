@@ -48,6 +48,53 @@ impl SingboxProcessor {
         }
     }
 
+    /// Convert AnyTLS parameters to Sing-box format.
+    /// Handles both Clash flat params and sing-box nested `tls`. Idle-session
+    /// fields are normalized to duration strings (sing-box accepts "30s",
+    /// while mihomo often emits raw integers in seconds).
+    pub fn convert_anytls_params_to_singbox(
+        config: &mut serde_json::Map<String, serde_json::Value>,
+        params: &std::collections::HashMap<String, serde_json::Value>,
+    ) {
+        // AnyTLS implies TLS. Reuse the trojan path (always_enabled=true) so the
+        // result has tls.enabled set even when the Clash source didn't say so.
+        if let Some(tls_value) =
+            crate::protocols::transport_converter::clash_tls_to_singbox(params, true)
+        {
+            config.insert("tls".to_string(), tls_value);
+        }
+
+        let normalize_duration = |v: &serde_json::Value| -> Option<serde_json::Value> {
+            if let Some(s) = v.as_str() {
+                Some(serde_json::Value::String(s.to_string()))
+            } else if let Some(n) = v.as_u64() {
+                Some(serde_json::Value::String(format!("{}s", n)))
+            } else {
+                None
+            }
+        };
+
+        for (kebab, snake) in [
+            ("idle-session-check-interval", "idle_session_check_interval"),
+            ("idle-session-timeout", "idle_session_timeout"),
+        ] {
+            if let Some(v) = params.get(snake).or_else(|| params.get(kebab)) {
+                if let Some(out) = normalize_duration(v) {
+                    config.insert(snake.to_string(), out);
+                }
+            }
+        }
+
+        if let Some(v) = params
+            .get("min_idle_session")
+            .or_else(|| params.get("min-idle-session"))
+        {
+            if v.is_number() {
+                config.insert("min_idle_session".to_string(), v.clone());
+            }
+        }
+    }
+
     /// Convert Trojan parameters to Sing-box format
     /// Handles both Clash-style flat params (sni, skip-cert-verify) and
     /// Sing-box-style nested objects (tls: {enabled, server_name, insecure})
@@ -209,6 +256,7 @@ impl ProtocolProcessor for SingboxProcessor {
         let is_shadowsocks = node.protocol == "ss" || node.protocol == "shadowsocks";
         let is_vmess = node.protocol == "vmess";
         let is_trojan = node.protocol == "trojan";
+        let is_anytls = node.protocol == "anytls";
 
         let protocol_type = if node.protocol == "ss" {
             "shadowsocks".to_string()
@@ -258,6 +306,8 @@ impl ProtocolProcessor for SingboxProcessor {
             Self::convert_vmess_params_to_singbox(&mut config, &node.extras());
         } else if is_trojan {
             Self::convert_trojan_params_to_singbox(&mut config, &node.extras());
+        } else if is_anytls {
+            Self::convert_anytls_params_to_singbox(&mut config, &node.extras());
         } else {
             // Generic parameter handling
             // Skip fields that are already handled or not needed in sing-box
