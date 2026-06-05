@@ -50,6 +50,8 @@ pub fn parse_proxy_url(url: &str) -> Result<Option<ProxyServer>> {
         parse_trojan_url(url)
     } else if url.starts_with("ss://") {
         parse_shadowsocks_url(url)
+    } else if url.starts_with("ssr://") {
+        parse_ssr_url(url)
     } else if url.starts_with("hysteria2://") || url.starts_with("hy2://") {
         parse_hysteria2_url(url)
     } else if url.starts_with("anytls://") {
@@ -58,6 +60,12 @@ pub fn parse_proxy_url(url: &str) -> Result<Option<ProxyServer>> {
         parse_hysteria_url(url)
     } else if url.starts_with("tuic://") {
         parse_tuic_url(url)
+    } else if url.starts_with("snell://") {
+        parse_snell_url(url)
+    } else if url.starts_with("socks5://") {
+        parse_socks5_url(url)
+    } else if url.starts_with("ssh://") {
+        parse_ssh_url(url)
     } else {
         tracing::warn!("Unsupported proxy URL: {}", url);
         Ok(None)
@@ -759,5 +767,351 @@ fn parse_tuic_url(url: &str) -> Result<Option<ProxyServer>> {
             tls,
             extras: HashMap::new(),
         },
+    }))
+}
+
+/// Parse `ssr://` (ShadowsocksR). The body is base64(server:port:protocol:method:obfs:base64(password)/?obfsparam=...&protoparam=...&remarks=...&group=...).
+/// We keep typed fields in the `extras` map until a typed `ProxyParams::ShadowsocksR`
+/// variant lands; that way the values aren't lost when ssr passes through the
+/// pipeline, and the bug where `is_subscription_format` accepts `ssr://` but
+/// `parse_proxy_url` drops it (resulting in 0 nodes) is gone.
+fn parse_ssr_url(url: &str) -> Result<Option<ProxyServer>> {
+    let body = url.strip_prefix("ssr://").unwrap_or("");
+
+    // The ssr body is one big URL-safe base64 chunk; decode it first.
+    let decoded = base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, body)
+        .or_else(|_| {
+            // Some clients use STANDARD with padding; try as fallback.
+            let padded = match body.len() % 4 {
+                2 => format!("{}==", body),
+                3 => format!("{}=", body),
+                _ => body.to_string(),
+            };
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &padded)
+        });
+    let decoded = match decoded.and_then(|b| String::from_utf8(b).map_err(|_| base64::DecodeError::InvalidByte(0, 0))) {
+        Ok(s) => s,
+        Err(_) => return Ok(None),
+    };
+
+    // Split off the optional /?... query.
+    let (head, query_str) = match decoded.find("/?") {
+        Some(p) => (&decoded[..p], Some(&decoded[p + 2..])),
+        None => (decoded.as_str(), None),
+    };
+
+    // head = server:port:protocol:method:obfs:base64(password)
+    let parts: Vec<&str> = head.split(':').collect();
+    if parts.len() < 6 {
+        return Ok(None);
+    }
+    let server = parts[0].to_string();
+    let port = parts[1].parse::<u16>().unwrap_or(0);
+    let protocol = parts[2].to_string();
+    let method = parts[3].to_string();
+    let obfs = parts[4].to_string();
+    let password_b64 = parts[5];
+    let password = base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, password_b64)
+        .or_else(|_| {
+            let padded = match password_b64.len() % 4 {
+                2 => format!("{}==", password_b64),
+                3 => format!("{}=", password_b64),
+                _ => password_b64.to_string(),
+            };
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &padded)
+        })
+        .ok()
+        .and_then(|b| String::from_utf8(b).ok())
+        .unwrap_or_default();
+
+    // Decode optional /?obfsparam, protoparam, remarks, group
+    let mut name = String::new();
+    let mut obfs_param = None;
+    let mut proto_param = None;
+    let mut group = None;
+    if let Some(qs) = query_str {
+        let decode_b64 = |raw: &str| -> Option<String> {
+            base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, raw)
+                .or_else(|_| {
+                    let padded = match raw.len() % 4 {
+                        2 => format!("{}==", raw),
+                        3 => format!("{}=", raw),
+                        _ => raw.to_string(),
+                    };
+                    base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &padded)
+                })
+                .ok()
+                .and_then(|b| String::from_utf8(b).ok())
+        };
+        for (k, v) in url::form_urlencoded::parse(qs.as_bytes()) {
+            match k.as_ref() {
+                "remarks" => {
+                    if let Some(decoded) = decode_b64(&v) {
+                        name = decoded;
+                    }
+                }
+                "obfsparam" => obfs_param = decode_b64(&v),
+                "protoparam" => proto_param = decode_b64(&v),
+                "group" => group = decode_b64(&v),
+                _ => {}
+            }
+        }
+    }
+
+    let mut extras: HashMap<String, serde_json::Value> = HashMap::new();
+    extras.insert("protocol".to_string(), serde_json::Value::String(protocol));
+    extras.insert("obfs".to_string(), serde_json::Value::String(obfs));
+    if let Some(op) = obfs_param {
+        extras.insert("obfs-param".to_string(), serde_json::Value::String(op));
+    }
+    if let Some(pp) = proto_param {
+        extras.insert("protocol-param".to_string(), serde_json::Value::String(pp));
+    }
+    if let Some(g) = group {
+        extras.insert("group".to_string(), serde_json::Value::String(g));
+    }
+
+    Ok(Some(ProxyServer {
+        name,
+        protocol: "ssr".to_string(),
+        server,
+        port,
+        password: Some(password),
+        method: Some(method),
+        params: ProxyParams::Generic { extras },
+    }))
+}
+
+/// Parse `snell://psk@host:port?obfs=&obfs-host=&version=#name`.
+/// Snell is a proprietary mihomo protocol; the share-link form mirrors trojan.
+fn parse_snell_url(url: &str) -> Result<Option<ProxyServer>> {
+    let body = url.strip_prefix("snell://").unwrap_or("");
+
+    let (head, name) = match body.find('#') {
+        Some(p) => {
+            let raw = &body[p + 1..];
+            let n = urlencoding::decode(raw)
+                .unwrap_or_else(|_| std::borrow::Cow::Borrowed(raw))
+                .to_string();
+            (&body[..p], n)
+        }
+        None => (body, String::new()),
+    };
+
+    let at_pos = match head.find('@') {
+        Some(p) => p,
+        None => return Ok(None),
+    };
+    let psk_raw = &head[..at_pos];
+    let psk = urlencoding::decode(psk_raw)
+        .unwrap_or_else(|_| std::borrow::Cow::Borrowed(psk_raw))
+        .to_string();
+    let after_auth = &head[at_pos + 1..];
+
+    let (authority, query_str) = match after_auth.find('?') {
+        Some(q) => (after_auth[..q].trim_end_matches('/'), Some(&after_auth[q + 1..])),
+        None => (after_auth.trim_end_matches('/'), None),
+    };
+
+    let (server, port) = match split_authority(authority, 0) {
+        Some(s) => s,
+        None => return Ok(None),
+    };
+
+    let mut extras: HashMap<String, serde_json::Value> = HashMap::new();
+    if let Some(qs) = query_str {
+        for (k, v) in url::form_urlencoded::parse(qs.as_bytes()) {
+            match k.as_ref() {
+                "version" => {
+                    if let Ok(n) = v.parse::<u64>() {
+                        extras.insert(
+                            "version".to_string(),
+                            serde_json::Value::Number(n.into()),
+                        );
+                    }
+                }
+                "obfs" => {
+                    let mut obfs_opts = serde_json::Map::new();
+                    obfs_opts.insert("mode".to_string(), serde_json::Value::String(v.into_owned()));
+                    extras.insert(
+                        "obfs-opts".to_string(),
+                        serde_json::Value::Object(obfs_opts),
+                    );
+                }
+                "obfs-host" | "obfs_host" => {
+                    let host_val = v.into_owned();
+                    let entry = extras
+                        .entry("obfs-opts".to_string())
+                        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+                    if let Some(obj) = entry.as_object_mut() {
+                        obj.insert("host".to_string(), serde_json::Value::String(host_val));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    Ok(Some(ProxyServer {
+        name,
+        protocol: "snell".to_string(),
+        server,
+        port,
+        password: Some(psk),
+        method: None,
+        params: ProxyParams::Generic { extras },
+    }))
+}
+
+/// Parse `socks5://[user:pass@]host:port[?tls=1&allowInsecure=1]#name`.
+/// User/pass and the optional fragment are URL-encoded in the wild.
+fn parse_socks5_url(url: &str) -> Result<Option<ProxyServer>> {
+    let body = url.strip_prefix("socks5://").unwrap_or("");
+
+    let (head, name) = match body.find('#') {
+        Some(p) => {
+            let raw = &body[p + 1..];
+            let n = urlencoding::decode(raw)
+                .unwrap_or_else(|_| std::borrow::Cow::Borrowed(raw))
+                .to_string();
+            (&body[..p], n)
+        }
+        None => (body, String::new()),
+    };
+
+    // Optional userinfo (user:pass@).
+    let (userinfo, after_auth) = match head.find('@') {
+        Some(p) => (Some(&head[..p]), &head[p + 1..]),
+        None => (None, head),
+    };
+
+    let (username, password) = match userinfo {
+        Some(ui) => match ui.find(':') {
+            Some(c) => {
+                let u = urlencoding::decode(&ui[..c])
+                    .unwrap_or_else(|_| std::borrow::Cow::Borrowed(&ui[..c]))
+                    .to_string();
+                let p = urlencoding::decode(&ui[c + 1..])
+                    .unwrap_or_else(|_| std::borrow::Cow::Borrowed(&ui[c + 1..]))
+                    .to_string();
+                (Some(u), Some(p))
+            }
+            None => (
+                Some(
+                    urlencoding::decode(ui)
+                        .unwrap_or_else(|_| std::borrow::Cow::Borrowed(ui))
+                        .to_string(),
+                ),
+                None,
+            ),
+        },
+        None => (None, None),
+    };
+
+    let (authority, query_str) = match after_auth.find('?') {
+        Some(q) => (after_auth[..q].trim_end_matches('/'), Some(&after_auth[q + 1..])),
+        None => (after_auth.trim_end_matches('/'), None),
+    };
+
+    let (server, port) = match split_authority(authority, 1080) {
+        Some(s) => s,
+        None => return Ok(None),
+    };
+
+    let mut tls = None;
+    let mut skip_cert_verify = None;
+    if let Some(qs) = query_str {
+        for (k, v) in url::form_urlencoded::parse(qs.as_bytes()) {
+            match k.as_ref() {
+                "tls" => tls = Some(v == "1" || v == "true"),
+                "allowInsecure" | "skip-cert-verify" | "skip_cert_verify" => {
+                    skip_cert_verify = Some(v == "1" || v == "true");
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let mut extras: HashMap<String, serde_json::Value> = HashMap::new();
+    if let Some(u) = &username {
+        extras.insert("username".to_string(), serde_json::Value::String(u.clone()));
+    }
+    if let Some(t) = tls {
+        extras.insert("tls".to_string(), serde_json::Value::Bool(t));
+    }
+    if let Some(s) = skip_cert_verify {
+        extras.insert("skip-cert-verify".to_string(), serde_json::Value::Bool(s));
+    }
+
+    Ok(Some(ProxyServer {
+        name,
+        protocol: "socks5".to_string(),
+        server,
+        port,
+        password,
+        method: None,
+        params: ProxyParams::Generic { extras },
+    }))
+}
+
+/// Parse `ssh://user[:password]@host[:port]#name`. SSH share-links don't have a
+/// formal spec; this matches what sing-box clients emit. Private-key auth can't
+/// be expressed in a URL, so only password auth survives the round-trip.
+fn parse_ssh_url(url: &str) -> Result<Option<ProxyServer>> {
+    let body = url.strip_prefix("ssh://").unwrap_or("");
+
+    let (head, name) = match body.find('#') {
+        Some(p) => {
+            let raw = &body[p + 1..];
+            let n = urlencoding::decode(raw)
+                .unwrap_or_else(|_| std::borrow::Cow::Borrowed(raw))
+                .to_string();
+            (&body[..p], n)
+        }
+        None => (body, String::new()),
+    };
+
+    let at_pos = match head.find('@') {
+        Some(p) => p,
+        None => return Ok(None),
+    };
+    let userinfo = &head[..at_pos];
+    let after_auth = &head[at_pos + 1..];
+
+    let (user, password) = match userinfo.find(':') {
+        Some(c) => {
+            let u = urlencoding::decode(&userinfo[..c])
+                .unwrap_or_else(|_| std::borrow::Cow::Borrowed(&userinfo[..c]))
+                .to_string();
+            let p = urlencoding::decode(&userinfo[c + 1..])
+                .unwrap_or_else(|_| std::borrow::Cow::Borrowed(&userinfo[c + 1..]))
+                .to_string();
+            (u, Some(p))
+        }
+        None => (
+            urlencoding::decode(userinfo)
+                .unwrap_or_else(|_| std::borrow::Cow::Borrowed(userinfo))
+                .to_string(),
+            None,
+        ),
+    };
+
+    let authority = after_auth.split('?').next().unwrap_or(after_auth).trim_end_matches('/');
+    let (server, port) = match split_authority(authority, 22) {
+        Some(s) => s,
+        None => return Ok(None),
+    };
+
+    let mut extras: HashMap<String, serde_json::Value> = HashMap::new();
+    extras.insert("user".to_string(), serde_json::Value::String(user));
+
+    Ok(Some(ProxyServer {
+        name,
+        protocol: "ssh".to_string(),
+        server,
+        port,
+        password,
+        method: None,
+        params: ProxyParams::Generic { extras },
     }))
 }

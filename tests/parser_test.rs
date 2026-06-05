@@ -871,3 +871,122 @@ fn test_extract_clash_multiple_proxies() {
     assert_eq!(servers[1].protocol, "vmess");
     assert_eq!(servers[2].protocol, "trojan");
 }
+
+// ── Subscription URL parsers (ssr/snell/socks5/ssh) ─────────────────────
+
+#[test]
+fn test_parse_ssr_url() {
+    use proxy_convert::protocols::subscription::parse_proxy_url;
+    // body = "1.2.3.4:443:auth_aes128_md5:aes-256-cfb:plain:base64(mypass)/?remarks=base64(mynode)"
+    let url = "ssr://MS4yLjMuNDo0NDM6YXV0aF9hZXMxMjhfbWQ1OmFlcy0yNTYtY2ZiOnBsYWluOmJYbHdZWE56Lz9yZW1hcmtzPWJYbHViMlJs";
+    let s = parse_proxy_url(url).unwrap().expect("parsed ssr");
+    assert_eq!(s.protocol, "ssr");
+    assert_eq!(s.server, "1.2.3.4");
+    assert_eq!(s.port, 443);
+    assert_eq!(s.method.as_deref(), Some("aes-256-cfb"));
+    assert_eq!(s.password.as_deref(), Some("mypass"));
+    assert_eq!(s.name, "mynode");
+    match &s.params {
+        ProxyParams::Generic { extras } => {
+            assert_eq!(
+                extras.get("protocol").and_then(|v| v.as_str()),
+                Some("auth_aes128_md5")
+            );
+            assert_eq!(extras.get("obfs").and_then(|v| v.as_str()), Some("plain"));
+        }
+        _ => panic!("Expected Generic"),
+    }
+}
+
+#[test]
+fn test_parse_snell_url() {
+    use proxy_convert::protocols::subscription::parse_proxy_url;
+    let s = parse_proxy_url("snell://yourpsk@example.com:443?obfs=tls&obfs-host=cdn.example.com&version=3#snell-1")
+        .unwrap()
+        .expect("parsed snell");
+    assert_eq!(s.protocol, "snell");
+    assert_eq!(s.server, "example.com");
+    assert_eq!(s.port, 443);
+    assert_eq!(s.password.as_deref(), Some("yourpsk"));
+    assert_eq!(s.name, "snell-1");
+    match &s.params {
+        ProxyParams::Generic { extras } => {
+            assert_eq!(extras.get("version").and_then(|v| v.as_u64()), Some(3));
+            let obfs_opts = extras.get("obfs-opts").and_then(|v| v.as_object()).unwrap();
+            assert_eq!(obfs_opts.get("mode").and_then(|v| v.as_str()), Some("tls"));
+            assert_eq!(
+                obfs_opts.get("host").and_then(|v| v.as_str()),
+                Some("cdn.example.com")
+            );
+        }
+        _ => panic!("Expected Generic"),
+    }
+}
+
+#[test]
+fn test_parse_socks5_url() {
+    use proxy_convert::protocols::subscription::parse_proxy_url;
+    let s = parse_proxy_url("socks5://alice:secret@example.com:1080?tls=1&allowInsecure=1#socks-1")
+        .unwrap()
+        .expect("parsed socks5");
+    assert_eq!(s.protocol, "socks5");
+    assert_eq!(s.server, "example.com");
+    assert_eq!(s.port, 1080);
+    assert_eq!(s.password.as_deref(), Some("secret"));
+    assert_eq!(s.name, "socks-1");
+    match &s.params {
+        ProxyParams::Generic { extras } => {
+            assert_eq!(extras.get("username").and_then(|v| v.as_str()), Some("alice"));
+            assert_eq!(extras.get("tls").and_then(|v| v.as_bool()), Some(true));
+            assert_eq!(
+                extras.get("skip-cert-verify").and_then(|v| v.as_bool()),
+                Some(true)
+            );
+        }
+        _ => panic!("Expected Generic"),
+    }
+
+    // Default port 1080 when port omitted, no userinfo.
+    let s2 = parse_proxy_url("socks5://example.com#anon").unwrap().expect("parsed socks5 anon");
+    assert_eq!(s2.port, 1080);
+    assert!(s2.password.is_none());
+}
+
+#[test]
+fn test_parse_ssh_url() {
+    use proxy_convert::protocols::subscription::parse_proxy_url;
+    let s = parse_proxy_url("ssh://root:hunter2@example.com:2222#bastion")
+        .unwrap()
+        .expect("parsed ssh");
+    assert_eq!(s.protocol, "ssh");
+    assert_eq!(s.server, "example.com");
+    assert_eq!(s.port, 2222);
+    assert_eq!(s.password.as_deref(), Some("hunter2"));
+    assert_eq!(s.name, "bastion");
+    match &s.params {
+        ProxyParams::Generic { extras } => {
+            assert_eq!(extras.get("user").and_then(|v| v.as_str()), Some("root"));
+        }
+        _ => panic!("Expected Generic"),
+    }
+
+    // Default port 22 + no password.
+    let s2 = parse_proxy_url("ssh://root@example.com").unwrap().expect("parsed ssh no port");
+    assert_eq!(s2.port, 22);
+    assert!(s2.password.is_none());
+}
+
+#[test]
+fn test_parse_subscription_with_ssr_lines() {
+    // Regression: detect.rs accepts ssr:// as subscription, but parse_proxy_url
+    // used to drop it → the whole sub returned 0 nodes. Now ssr lines yield ProxyServer.
+    use proxy_convert::protocols::subscription::parse_subscription;
+    let content = concat!(
+        "ssr://MS4yLjMuNDo0NDM6YXV0aF9hZXMxMjhfbWQ1OmFlcy0yNTYtY2ZiOnBsYWluOmJYbHdZWE56Lz9yZW1hcmtzPWJYbHViMlJs\n",
+        "ss://YWVzLTI1Ni1nY206cGFzcw==@5.6.7.8:8388#ss-node\n"
+    );
+    let servers = parse_subscription(content).unwrap();
+    assert_eq!(servers.len(), 2);
+    assert_eq!(servers[0].protocol, "ssr");
+    assert_eq!(servers[1].protocol, "shadowsocks");
+}
