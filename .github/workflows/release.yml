@@ -6,7 +6,7 @@ on:
       - 'v*'
 
 env:
-  BINARY_NAME: proxy-convert
+  BINARY_NAME: subforge
   RUST_BACKTRACE: 1
 
 jobs:

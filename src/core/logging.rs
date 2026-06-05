@@ -7,7 +7,7 @@ use tracing_subscriber::EnvFilter;
 /// Initialize logging system
 pub fn init_logging(log_level: Level) -> Result<()> {
     let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(format!("proxy_convert={}", log_level.as_str())));
+        .unwrap_or_else(|_| EnvFilter::new(format!("subforge={}", log_level.as_str())));
 
     tracing_subscriber::fmt()
         .with_env_filter(filter)

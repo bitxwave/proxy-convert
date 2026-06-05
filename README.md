@@ -1,6 +1,8 @@
-# Proxy Config Converter
+# SubForge
 
-A modern, extensible proxy configuration conversion tool supporting conversion and multi-source integration between various proxy configuration formats.
+> Forge unified proxy configurations from multiple subscription sources.
+
+A modern, extensible Rust CLI that merges multiple proxy subscription sources (Clash, Sing-box, V2Ray, etc.) into a single configuration via template-driven node selection.
 
 ## 🚀 Features
 
@@ -21,15 +23,15 @@ A modern, extensible proxy configuration conversion tool supporting conversion a
 ### Build from source
 
 ```bash
-git clone https://github.com/your-username/proxy-convert.git
-cd proxy-convert
+git clone https://github.com/bitxwave/subforge.git
+cd subforge
 cargo build --release
 ```
 
 ### Install via Cargo
 
 ```bash
-cargo install --git https://github.com/your-username/proxy-convert.git
+cargo install --git https://github.com/bitxwave/subforge.git
 ```
 
 ## 🎯 Quick Start
@@ -38,20 +40,20 @@ cargo install --git https://github.com/your-username/proxy-convert.git
 
 ```bash
 # Recommended: URL-style (path/url + query params)
-proxy-convert convert --source "./clash.yaml?type=clash"
-proxy-convert convert --source "https://example.com/sub?type=clash&name=my&flag=clash" -o config.json
+subforge convert --source "./clash.yaml?type=clash"
+subforge convert --source "https://example.com/sub?type=clash&name=my&flag=clash" -o config.json
 
 # Legacy: name@type@source or type@source
-proxy-convert convert --source "clash1@clash@./clash.yaml" --source "singbox1@sing-box@./singbox.json" -o config.json
+subforge convert --source "clash1@clash@./clash.yaml" --source "singbox1@sing-box@./singbox.json" -o config.json
 
 # Validate config file
-proxy-convert validate config.json
+subforge validate config.json
 
 # Generate template
-proxy-convert template singbox --output template.json
+subforge template singbox --output template.json
 
 # Show version info
-proxy-convert version
+subforge version
 ```
 
 ## 🔧 Multi-Source Mode
@@ -212,7 +214,7 @@ When using `source-name@tag` format, the final node tags automatically include s
 ### `convert` - Convert config format
 
 ```bash
-proxy-convert convert [OPTIONS] --source <SOURCE> [--source <SOURCE>...]
+subforge convert [OPTIONS] --source <SOURCE> [--source <SOURCE>...]
 ```
 
 **Arguments:**
@@ -231,7 +233,7 @@ proxy-convert convert [OPTIONS] --source <SOURCE> [--source <SOURCE>...]
 ### `validate` - Validate config format
 
 ```bash
-proxy-convert validate <FILE> [OPTIONS]
+subforge validate <FILE> [OPTIONS]
 ```
 
 **Arguments:**
@@ -245,7 +247,7 @@ proxy-convert validate <FILE> [OPTIONS]
 ### `template` - Generate template
 
 ```bash
-proxy-convert template [OPTIONS]
+subforge template [OPTIONS]
 ```
 
 **Options:**
@@ -256,7 +258,7 @@ proxy-convert template [OPTIONS]
 ### `version` - Show version info
 
 ```bash
-proxy-convert version
+subforge version
 ```
 
 ## ⚙️ Configuration
@@ -266,13 +268,13 @@ proxy-convert version
 The program will look for config files in the following order:
 
 1. `config.yaml` or `config.yml` in the current directory
-2. `proxy-convert/config.yaml` or `config.yml` in the user config directory
+2. `subforge/config.yaml` or `config.yml` in the user config directory
 
 ### Config Example
 
 ```yaml
 # config.yaml
-user_agent: "ProxyConfigConverter/3.0.0"
+user_agent: "SubForge/2.0.0"
 timeout_seconds: 30
 retry_count: 3
 cache_ttl_seconds: 3600
@@ -280,7 +282,7 @@ log_level: info
 output_format: json
 default_input_format: clash
 default_output_format: singbox
-template_dir: ~/.config/proxy-convert/templates
+template_dir: ~/.config/subforge/templates
 # sources: same format as --source, e.g. ["path?type=clash&name=my"]
 # sources:
 #   - "./clash.yaml?type=clash&name=clash1"
@@ -289,12 +291,12 @@ template_dir: ~/.config/proxy-convert/templates
 
 ### Environment Variables
 
-All config items can be overridden by environment variables in the format `PROXY_CONVERT_<KEY>`:
+All config items can be overridden by environment variables in the format `SUBFORGE_<KEY>`:
 
 ```bash
-export PROXY_CONVERT_LOG_LEVEL=debug
-export PROXY_CONVERT_TIMEOUT_SECONDS=60
-export PROXY_CONVERT_DEFAULT_OUTPUT_FORMAT=v2ray
+export SUBFORGE_LOG_LEVEL=debug
+export SUBFORGE_TIMEOUT_SECONDS=60
+export SUBFORGE_DEFAULT_OUTPUT_FORMAT=v2ray
 ```
 
 ## 🏗️ Project Structure

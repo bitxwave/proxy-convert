@@ -1,16 +1,16 @@
 [package]
-name = "proxy-convert"
+name = "subforge"
 version = "2.0.0"
 edition = "2021"
 authors = ["Messica <Messica@example.com>"]
-description = "A modern, extensible tool for converting between different proxy configuration formats with multi-input integration support (Clash, Sing-box, V2Ray, etc.)"
+description = "A modern, extensible tool for forging unified proxy configurations from multiple subscription sources (Clash, Sing-box, V2Ray, etc.) with template-driven node selection."
 license = "MIT"
-repository = "https://github.com/picopock/proxy-convert"
-keywords = ["proxy", "clash", "sing-box", "v2ray", "subscription", "converter", "configuration", "multi-input", "integration"]
+repository = "https://github.com/bitxwave/subforge"
+keywords = ["proxy", "clash", "sing-box", "v2ray", "subscription"]
 categories = ["command-line-utilities", "network-programming"]
 
 [lib]
-name = "proxy_convert"
+name = "subforge"
 path = "src/lib.rs"
 
 [dependencies]
@@ -50,7 +50,7 @@ tempfile = "3.23"
 wiremock = "0.6"
 
 [[bin]]
-name = "proxy-convert"
+name = "subforge"
 path = "src/main.rs"
 
 [profile.release]

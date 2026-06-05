@@ -5,11 +5,11 @@
 //! - retry behavior on transient 5xx
 //! - error classification / message hints
 
-use proxy_convert::commands::convert::ConvertCommand;
-use proxy_convert::core::config::AppConfig;
-use proxy_convert::core::error::{ConvertError, NetworkErrorKind};
-use proxy_convert::protocols::ProtocolRegistry;
-use proxy_convert::utils::source::SourceLoader;
+use subforge::commands::convert::ConvertCommand;
+use subforge::core::config::AppConfig;
+use subforge::core::error::{ConvertError, NetworkErrorKind};
+use subforge::protocols::ProtocolRegistry;
+use subforge::utils::source::SourceLoader;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 

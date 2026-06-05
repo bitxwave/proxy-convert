@@ -2,8 +2,8 @@
 
 /// Display version information
 pub fn handle_version() {
-    println!("proxy-convert v{}", env!("CARGO_PKG_VERSION"));
-    println!("A modern, extensible proxy configuration conversion tool");
+    println!("subforge v{}", env!("CARGO_PKG_VERSION"));
+    println!("Forge unified proxy configurations from multiple subscription sources");
 }
 
 #[cfg(test)]

@@ -51,7 +51,7 @@ pub struct AppConfig {
 fn default_user_agent() -> String {
     // Empty by default -> SourceLoader picks a protocol-matched UA per-request
     // (sing-box/mihomo/v2rayN). Subscription panels route by UA, so a generic
-    // UA like "Mozilla/... ProxyConvert/..." gets rejected.
+    // UA like "Mozilla/... SubForge/..." gets rejected.
     String::new()
 }
 
@@ -89,7 +89,7 @@ impl Default for AppConfig {
 
 impl AppConfig {
     /// Load config: optional file from default paths (first existing) + env vars.
-    /// Env vars (PROXY_CONVERT_*) override file. Used when no explicit config path is given.
+    /// Env vars (SUBFORGE_*) override file. Used when no explicit config path is given.
     fn load_default_locations() -> Result<Self> {
         let paths = Self::get_config_paths();
         let mut builder = config::Config::builder();
@@ -102,7 +102,7 @@ impl AppConfig {
             }
         }
         builder = builder.add_source(
-            config::Environment::with_prefix("PROXY_CONVERT").separator("__"),
+            config::Environment::with_prefix("SUBFORGE").separator("__"),
         );
         let c = builder
             .build()
@@ -129,7 +129,7 @@ impl AppConfig {
 
         // User config directory
         if let Some(config_dir) = dirs::config_dir() {
-            let app_config_dir = config_dir.join("proxy-convert");
+            let app_config_dir = config_dir.join("subforge");
             paths.push(app_config_dir.join("config.yaml"));
             paths.push(app_config_dir.join("config.yml"));
         }
@@ -163,13 +163,13 @@ impl AppConfig {
     }
 
     /// Load application configuration.
-    /// Priority: explicit path (if given) > default paths (first existing) > env (PROXY_CONVERT_*) > serde defaults.
+    /// Priority: explicit path (if given) > default paths (first existing) > env (SUBFORGE_*) > serde defaults.
     pub fn load_from_path(config_path: Option<&str>) -> Result<Self> {
         let config = if let Some(path) = config_path {
             let c = config::Config::builder()
                 .add_source(config::File::from(std::path::Path::new(path)).required(true))
                 .add_source(
-                    config::Environment::with_prefix("PROXY_CONVERT").separator("__"),
+                    config::Environment::with_prefix("SUBFORGE").separator("__"),
                 )
                 .build()
                 .map_err(|e| ConvertError::ConfigValidationError(e.to_string()))?;

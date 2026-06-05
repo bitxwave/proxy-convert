@@ -1,11 +1,11 @@
 //! Tests for parser extraction of individual proxy types from strongly-typed configs.
 
-use proxy_convert::core::source::Protocol;
-use proxy_convert::protocols::{clash, singbox, ProxyParams};
-use proxy_convert::protocols::source::{Config, Source};
+use subforge::core::source::Protocol;
+use subforge::protocols::{clash, singbox, ProxyParams};
+use subforge::protocols::source::{Config, Source};
 
 fn make_source(config: Config, source_type: Protocol) -> Source {
-    use proxy_convert::core::source::{SourceLocation, SourceMeta};
+    use subforge::core::source::{SourceLocation, SourceMeta};
     Source {
         meta: SourceMeta {
             name: Some("test".into()),
@@ -373,8 +373,8 @@ fn test_extract_singbox_anytls() {
 
 #[test]
 fn test_clash_anytls_to_singbox_node_config() {
-    use proxy_convert::protocols::singbox::template_processor::SingboxProcessor;
-    use proxy_convert::protocols::ProtocolProcessor;
+    use subforge::protocols::singbox::template_processor::SingboxProcessor;
+    use subforge::protocols::ProtocolProcessor;
 
     let config: clash::Config = serde_json::from_value(serde_json::json!({
         "proxies": [{
@@ -411,7 +411,7 @@ fn test_clash_anytls_to_singbox_node_config() {
 
 #[test]
 fn test_parse_anytls_url() {
-    use proxy_convert::protocols::subscription::parse_proxy_url;
+    use subforge::protocols::subscription::parse_proxy_url;
     let s = parse_proxy_url("anytls://letmein@example.com:8443/?sni=real.example.com&insecure=1#node1")
         .unwrap()
         .expect("parsed");
@@ -475,8 +475,8 @@ fn test_extract_clash_vless_with_reality() {
 
 #[test]
 fn test_clash_vless_reality_to_singbox_emits_reality() {
-    use proxy_convert::protocols::singbox::template_processor::SingboxProcessor;
-    use proxy_convert::protocols::ProtocolProcessor;
+    use subforge::protocols::singbox::template_processor::SingboxProcessor;
+    use subforge::protocols::ProtocolProcessor;
 
     let config: clash::Config = serde_json::from_value(serde_json::json!({
         "proxies": [{
@@ -552,8 +552,8 @@ fn test_extract_clash_hysteria2() {
 
 #[test]
 fn test_clash_hysteria2_to_singbox_emits_obfs_and_mbps() {
-    use proxy_convert::protocols::singbox::template_processor::SingboxProcessor;
-    use proxy_convert::protocols::ProtocolProcessor;
+    use subforge::protocols::singbox::template_processor::SingboxProcessor;
+    use subforge::protocols::ProtocolProcessor;
 
     let config: clash::Config = serde_json::from_value(serde_json::json!({
         "proxies": [{
@@ -618,8 +618,8 @@ fn test_extract_clash_hysteria_v1() {
 
 #[test]
 fn test_clash_hysteria_v1_to_singbox_uses_auth_str() {
-    use proxy_convert::protocols::singbox::template_processor::SingboxProcessor;
-    use proxy_convert::protocols::ProtocolProcessor;
+    use subforge::protocols::singbox::template_processor::SingboxProcessor;
+    use subforge::protocols::ProtocolProcessor;
 
     let config: clash::Config = serde_json::from_value(serde_json::json!({
         "proxies": [{
@@ -683,8 +683,8 @@ fn test_extract_clash_tuic_v5() {
 
 #[test]
 fn test_clash_tuic_to_singbox_emits_v5_fields() {
-    use proxy_convert::protocols::singbox::template_processor::SingboxProcessor;
-    use proxy_convert::protocols::ProtocolProcessor;
+    use subforge::protocols::singbox::template_processor::SingboxProcessor;
+    use subforge::protocols::ProtocolProcessor;
 
     let config: clash::Config = serde_json::from_value(serde_json::json!({
         "proxies": [{
@@ -753,8 +753,8 @@ fn test_extract_clash_wireguard_simplified() {
 
 #[test]
 fn test_clash_wireguard_full_peers_to_singbox() {
-    use proxy_convert::protocols::singbox::template_processor::SingboxProcessor;
-    use proxy_convert::protocols::ProtocolProcessor;
+    use subforge::protocols::singbox::template_processor::SingboxProcessor;
+    use subforge::protocols::ProtocolProcessor;
 
     let config: clash::Config = serde_json::from_value(serde_json::json!({
         "proxies": [{
@@ -790,7 +790,7 @@ fn test_clash_wireguard_full_peers_to_singbox() {
 
 #[test]
 fn test_parse_hysteria_url() {
-    use proxy_convert::protocols::subscription::parse_proxy_url;
+    use subforge::protocols::subscription::parse_proxy_url;
     let s = parse_proxy_url("hysteria://h.example.com:443?auth=pwd&peer=h.com&upmbps=30&downmbps=200&obfs=mystic#hy1")
         .unwrap()
         .expect("parsed");
@@ -811,7 +811,7 @@ fn test_parse_hysteria_url() {
 
 #[test]
 fn test_parse_tuic_v5_url() {
-    use proxy_convert::protocols::subscription::parse_proxy_url;
+    use subforge::protocols::subscription::parse_proxy_url;
     let s = parse_proxy_url("tuic://U:P@host.com:443/?sni=host.com&congestion_control=bbr&udp_relay_mode=native&allow_insecure=1#tuic1")
         .unwrap()
         .expect("parsed");
@@ -876,7 +876,7 @@ fn test_extract_clash_multiple_proxies() {
 
 #[test]
 fn test_parse_ssr_url() {
-    use proxy_convert::protocols::subscription::parse_proxy_url;
+    use subforge::protocols::subscription::parse_proxy_url;
     // body = "1.2.3.4:443:auth_aes128_md5:aes-256-cfb:plain:base64(mypass)/?remarks=base64(mynode)"
     let url = "ssr://MS4yLjMuNDo0NDM6YXV0aF9hZXMxMjhfbWQ1OmFlcy0yNTYtY2ZiOnBsYWluOmJYbHdZWE56Lz9yZW1hcmtzPWJYbHViMlJs";
     let s = parse_proxy_url(url).unwrap().expect("parsed ssr");
@@ -900,7 +900,7 @@ fn test_parse_ssr_url() {
 
 #[test]
 fn test_parse_snell_url() {
-    use proxy_convert::protocols::subscription::parse_proxy_url;
+    use subforge::protocols::subscription::parse_proxy_url;
     let s = parse_proxy_url("snell://yourpsk@example.com:443?obfs=tls&obfs-host=cdn.example.com&version=3#snell-1")
         .unwrap()
         .expect("parsed snell");
@@ -925,7 +925,7 @@ fn test_parse_snell_url() {
 
 #[test]
 fn test_parse_socks5_url() {
-    use proxy_convert::protocols::subscription::parse_proxy_url;
+    use subforge::protocols::subscription::parse_proxy_url;
     let s = parse_proxy_url("socks5://alice:secret@example.com:1080?tls=1&allowInsecure=1#socks-1")
         .unwrap()
         .expect("parsed socks5");
@@ -954,7 +954,7 @@ fn test_parse_socks5_url() {
 
 #[test]
 fn test_parse_ssh_url() {
-    use proxy_convert::protocols::subscription::parse_proxy_url;
+    use subforge::protocols::subscription::parse_proxy_url;
     let s = parse_proxy_url("ssh://root:hunter2@example.com:2222#bastion")
         .unwrap()
         .expect("parsed ssh");
@@ -980,7 +980,7 @@ fn test_parse_ssh_url() {
 fn test_parse_subscription_with_ssr_lines() {
     // Regression: detect.rs accepts ssr:// as subscription, but parse_proxy_url
     // used to drop it → the whole sub returned 0 nodes. Now ssr lines yield ProxyServer.
-    use proxy_convert::protocols::subscription::parse_subscription;
+    use subforge::protocols::subscription::parse_subscription;
     let content = concat!(
         "ssr://MS4yLjMuNDo0NDM6YXV0aF9hZXMxMjhfbWQ1OmFlcy0yNTYtY2ZiOnBsYWluOmJYbHdZWE56Lz9yZW1hcmtzPWJYbHViMlJs\n",
         "ss://YWVzLTI1Ni1nY206cGFzcw==@5.6.7.8:8388#ss-node\n"
@@ -1331,8 +1331,8 @@ fn test_extract_singbox_naive() {
 
 #[test]
 fn test_clash_socks5_to_singbox_renames_type_and_rebuilds_tls() {
-    use proxy_convert::protocols::singbox::template_processor::SingboxProcessor;
-    use proxy_convert::protocols::ProtocolProcessor;
+    use subforge::protocols::singbox::template_processor::SingboxProcessor;
+    use subforge::protocols::ProtocolProcessor;
 
     let cfg: clash::Config = serde_json::from_value(serde_json::json!({
         "proxies": [{
@@ -1375,8 +1375,8 @@ fn test_clash_socks5_to_singbox_renames_type_and_rebuilds_tls() {
 
 #[test]
 fn test_singbox_socks_to_clash_renames_type() {
-    use proxy_convert::protocols::clash::template_processor::ClashProcessor;
-    use proxy_convert::protocols::ProtocolProcessor;
+    use subforge::protocols::clash::template_processor::ClashProcessor;
+    use subforge::protocols::ProtocolProcessor;
 
     let cfg: singbox::Config = serde_json::from_value(serde_json::json!({
         "inbounds": [],
@@ -1410,8 +1410,8 @@ fn test_clash_http_to_singbox_passthrough_preserves_tls() {
     // HTTP field shape is identical between Clash and sing-box (username,
     // password, tls), so the generic path already produced the right output —
     // but we lock that in here so a future refactor can't silently break it.
-    use proxy_convert::protocols::singbox::template_processor::SingboxProcessor;
-    use proxy_convert::protocols::ProtocolProcessor;
+    use subforge::protocols::singbox::template_processor::SingboxProcessor;
+    use subforge::protocols::ProtocolProcessor;
 
     let cfg: clash::Config = serde_json::from_value(serde_json::json!({
         "proxies": [{
@@ -1441,8 +1441,8 @@ fn test_clash_snell_to_clash_does_not_emit_password() {
     // mihomo Snell uses `psk`, not `password`. Generic emit used to insert
     // `password: <psk>` because we set ProxyServer.password = ssr_or_snell_psk
     // for routing convenience. The output now suppresses that key for snell.
-    use proxy_convert::protocols::clash::template_processor::ClashProcessor;
-    use proxy_convert::protocols::ProtocolProcessor;
+    use subforge::protocols::clash::template_processor::ClashProcessor;
+    use subforge::protocols::ProtocolProcessor;
 
     let cfg: clash::Config = serde_json::from_value(serde_json::json!({
         "proxies": [{
@@ -1482,8 +1482,8 @@ fn test_clash_snell_to_clash_does_not_emit_password() {
 
 #[test]
 fn test_singbox_vless_reality_to_clash() {
-    use proxy_convert::protocols::clash::template_processor::ClashProcessor;
-    use proxy_convert::protocols::ProtocolProcessor;
+    use subforge::protocols::clash::template_processor::ClashProcessor;
+    use subforge::protocols::ProtocolProcessor;
     let cfg: singbox::Config = serde_json::from_value(serde_json::json!({
         "inbounds": [],
         "outbounds": [{
@@ -1520,8 +1520,8 @@ fn test_singbox_vless_reality_to_clash() {
 
 #[test]
 fn test_singbox_hysteria2_to_clash() {
-    use proxy_convert::protocols::clash::template_processor::ClashProcessor;
-    use proxy_convert::protocols::ProtocolProcessor;
+    use subforge::protocols::clash::template_processor::ClashProcessor;
+    use subforge::protocols::ProtocolProcessor;
     let cfg: singbox::Config = serde_json::from_value(serde_json::json!({
         "inbounds": [],
         "outbounds": [{
@@ -1556,8 +1556,8 @@ fn test_singbox_hysteria2_to_clash() {
 
 #[test]
 fn test_singbox_hysteria_v1_to_clash() {
-    use proxy_convert::protocols::clash::template_processor::ClashProcessor;
-    use proxy_convert::protocols::ProtocolProcessor;
+    use subforge::protocols::clash::template_processor::ClashProcessor;
+    use subforge::protocols::ProtocolProcessor;
     let cfg: singbox::Config = serde_json::from_value(serde_json::json!({
         "inbounds": [],
         "outbounds": [{
@@ -1595,8 +1595,8 @@ fn test_singbox_tuic_to_clash_converts_heartbeat_to_milliseconds() {
     // was emitted verbatim as `heartbeat-interval: "10s"`, but mihomo expects
     // an integer in milliseconds. The fix converts duration suffixes
     // (s / ms) to a numeric ms value.
-    use proxy_convert::protocols::clash::template_processor::ClashProcessor;
-    use proxy_convert::protocols::ProtocolProcessor;
+    use subforge::protocols::clash::template_processor::ClashProcessor;
+    use subforge::protocols::ProtocolProcessor;
     let cfg: singbox::Config = serde_json::from_value(serde_json::json!({
         "inbounds": [],
         "outbounds": [{
@@ -1635,8 +1635,8 @@ fn test_singbox_tuic_to_clash_converts_heartbeat_to_milliseconds() {
 fn test_singbox_tuic_heartbeat_in_ms_passthrough() {
     // Cover the other suffix mihomo's converter encounters: sing-box may also
     // emit "500ms" verbatim; should land as 500.
-    use proxy_convert::protocols::clash::template_processor::ClashProcessor;
-    use proxy_convert::protocols::ProtocolProcessor;
+    use subforge::protocols::clash::template_processor::ClashProcessor;
+    use subforge::protocols::ProtocolProcessor;
     let cfg: singbox::Config = serde_json::from_value(serde_json::json!({
         "inbounds": [],
         "outbounds": [{
@@ -1663,8 +1663,8 @@ fn test_singbox_tuic_heartbeat_in_ms_passthrough() {
 fn test_singbox_wireguard_to_clash_splits_local_addresses() {
     // sing-box uses `local_address: ["10.0.0.2/32", "fd00::2/128"]`. mihomo
     // splits these into separate `ip` and `ipv6` fields without the mask.
-    use proxy_convert::protocols::clash::template_processor::ClashProcessor;
-    use proxy_convert::protocols::ProtocolProcessor;
+    use subforge::protocols::clash::template_processor::ClashProcessor;
+    use subforge::protocols::ProtocolProcessor;
     let cfg: singbox::Config = serde_json::from_value(serde_json::json!({
         "inbounds": [],
         "outbounds": [{

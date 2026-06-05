@@ -1,12 +1,13 @@
-//! Proxy Configuration Converter Main Program
+//! SubForge Main Program
 //!
-//! A modern, extensible tool for converting between different proxy configuration formats.
-//! Supports Clash, Sing-box, V2Ray and other formats.
+//! A modern, extensible tool for forging unified proxy configurations from
+//! multiple subscription sources (Clash, Sing-box, V2Ray, etc.) with
+//! template-driven node selection.
 
-use proxy_convert::commands::cli::{Cli, Commands};
-use proxy_convert::commands::{convert, template, validate, version};
-use proxy_convert::core::error;
-use proxy_convert::core::{config::AppConfig, logging};
+use subforge::commands::cli::{Cli, Commands};
+use subforge::commands::{convert, template, validate, version};
+use subforge::core::error;
+use subforge::core::{config::AppConfig, logging};
 use clap::Parser;
 use tracing::Level;
 
@@ -43,7 +44,7 @@ async fn run() -> error::Result<()> {
     };
     logging::init_logging(log_level)?;
 
-    let registry = proxy_convert::protocols::ProtocolRegistry::init();
+    let registry = subforge::protocols::ProtocolRegistry::init();
 
     match cli.command {
         Commands::Convert(args) => convert::handle_convert(&args, &config, &registry).await,
