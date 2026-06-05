@@ -3,16 +3,16 @@ use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "proxy-convert",
+    name = "subforge",
     author = "Messica <messica@example.com>",
     version = "2.0.0",
-    about = "A modern tool for converting proxy configuration",
-    long_about = "A powerful tool for converting proxy configuration. Supports multiple protocol conversions, template customization, rule filtering and other features."
+    about = "Forge unified proxy configurations from multiple subscription sources",
+    long_about = "SubForge merges multiple proxy subscription sources (Clash, Sing-box, V2Ray, etc.) into a single configuration via template-driven node selection. Supports multi-source integration, tag-based filtering, and pluggable protocol processors."
 )]
 pub struct Cli {
     /// Configuration file path. If not specified, will search in default locations:
     /// 1. ./config.yaml or ./config.yml (current directory)
-    /// 2. ~/.config/proxy-convert/config.yaml (Linux/macOS) or %APPDATA%/proxy-convert/config.yaml (Windows)
+    /// 2. ~/.config/subforge/config.yaml (Linux/macOS) or %APPDATA%/subforge/config.yaml (Windows)
     #[arg(short, long, global = true, value_name = "PATH")]
     pub config: Option<PathBuf>,
 

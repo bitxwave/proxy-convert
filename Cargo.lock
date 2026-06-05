@@ -1411,35 +1411,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "proxy-convert"
-version = "2.0.0"
-dependencies = [
- "anyhow",
- "base64",
- "cached",
- "chrono",
- "clap",
- "config",
- "dirs",
- "indexmap 2.12.1",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "serde_with",
- "serde_yaml",
- "tempfile",
- "thiserror",
- "tokio",
- "tokio-test",
- "tracing",
- "tracing-subscriber",
- "url",
- "urlencoding",
- "wiremock",
-]
-
-[[package]]
 name = "quinn"
 version = "0.11.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2014,6 +1985,35 @@ name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
+
+[[package]]
+name = "subforge"
+version = "2.0.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "cached",
+ "chrono",
+ "clap",
+ "config",
+ "dirs",
+ "indexmap 2.12.1",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "serde_yaml",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-test",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "urlencoding",
+ "wiremock",
+]
 
 [[package]]
 name = "subtle"

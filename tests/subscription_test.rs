@@ -1,8 +1,8 @@
 //! Tests for subscription URL parsing (vmess://, vless://, trojan://, ss://, hysteria2://).
 
 use base64::Engine;
-use proxy_convert::protocols::subscription;
-use proxy_convert::protocols::ProxyParams;
+use subforge::protocols::subscription;
+use subforge::protocols::ProxyParams;
 
 #[test]
 fn test_parse_vmess_url() {

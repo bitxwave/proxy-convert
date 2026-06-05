@@ -1,6 +1,6 @@
 //! Tests for transport/TLS conversion roundtrips between Clash and sing-box formats.
 
-use proxy_convert::protocols::transport_converter;
+use subforge::protocols::transport_converter;
 use serde_json::{json, Map};
 use std::collections::HashMap;
 

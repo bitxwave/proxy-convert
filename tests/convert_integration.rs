@@ -1,9 +1,9 @@
 //! Integration tests: full convert/validate flow with file-based sources.
 
-use proxy_convert::commands::convert::ConvertCommand;
-use proxy_convert::core::config::AppConfig;
-use proxy_convert::core::source::Protocol;
-use proxy_convert::protocols::ProtocolRegistry;
+use subforge::commands::convert::ConvertCommand;
+use subforge::core::config::AppConfig;
+use subforge::core::source::Protocol;
+use subforge::protocols::ProtocolRegistry;
 use tempfile::NamedTempFile;
 
 fn minimal_singbox_content() -> &'static str {
@@ -41,7 +41,7 @@ async fn integration_convert_file_source_singbox_to_json() {
     let source_meta = ConvertCommand::parse_source_string(&source_str).unwrap();
     assert!(matches!(source_meta.source_type, Protocol::SingBox));
 
-    let source = proxy_convert::utils::source::SourceLoader::load_source(
+    let source = subforge::utils::source::SourceLoader::load_source(
         &source_meta,
         &registry,
         &config,
@@ -108,7 +108,7 @@ async fn integration_convert_file_source_clash_to_singbox() {
 #[test]
 fn integration_subscription_parse_plain_text() {
     let content = "vmess://uuid@host:443#name1\ntrojan://pwd@h2:8443#name2\n";
-    let servers = proxy_convert::protocols::subscription::parse_plain_text(content).unwrap();
+    let servers = subforge::protocols::subscription::parse_plain_text(content).unwrap();
     assert_eq!(servers.len(), 2);
     assert_eq!(servers[0].protocol, "vmess");
     assert_eq!(servers[0].name, "name1");
@@ -129,7 +129,7 @@ fn integration_subscription_parse_mixed_with_new_protocols() {
         "socks5://alice:secret@3.3.3.3:1080#socks-1\n",
         "ssh://root:hunter2@4.4.4.4:22#ssh-1\n",
     );
-    let servers = proxy_convert::protocols::subscription::parse_plain_text(content).unwrap();
+    let servers = subforge::protocols::subscription::parse_plain_text(content).unwrap();
     let protocols: Vec<&str> = servers.iter().map(|s| s.protocol.as_str()).collect();
     assert_eq!(
         protocols,

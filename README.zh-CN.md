@@ -1,6 +1,8 @@
-# Proxy Config Converter
+# SubForge
 
-一个现代化、可扩展的代理配置转换工具，支持多种代理配置格式之间的转换和多输入整合。
+> 多源订阅锻造为一份统一代理配置。
+
+现代化、可扩展的 Rust CLI 工具：把多个代理订阅源（Clash、Sing-box、V2Ray 等）按模板规则锻造成一份统一的代理配置。
 
 ## 📑 目录
 
@@ -34,15 +36,15 @@
 ### 源码编译
 
 ```bash
-git clone https://github.com/your-username/proxy-convert.git
-cd proxy-convert
+git clone https://github.com/bitxwave/subforge.git
+cd subforge
 cargo build --release
 ```
 
 ### 使用 Cargo 安装
 
 ```bash
-cargo install --git https://github.com/your-username/proxy-convert.git
+cargo install --git https://github.com/bitxwave/subforge.git
 ```
 
 ## 🎯 快速开始
@@ -54,7 +56,7 @@ cargo install --git https://github.com/your-username/proxy-convert.git
 - 转换订阅
 
   ```bash
-  proxy-convert convert [OPTIONS] --source <SOURCE> [--source <SOURCE>...]
+  subforge convert [OPTIONS] --source <SOURCE> [--source <SOURCE>...]
   ```
 
   **选项：**
@@ -82,40 +84,40 @@ cargo install --git https://github.com/your-username/proxy-convert.git
 - **验证配置文件**：验证配置文件的格式
 
   ```bash
-  proxy-convert validate <FILE> [-f, --format <FORMAT>]
+  subforge validate <FILE> [-f, --format <FORMAT>]
   ```
 
 - **生成模板**：
 
   ```bash
-  proxy-convert template [-o, --output <OUTPUT>] [-t, --template-type <TYPE>]
+  subforge template [-o, --output <OUTPUT>] [-t, --template-type <TYPE>]
   ```
 
 - **显示版本信息**：
 
   ```bash
-  proxy-convert version
+  subforge version
   ```
 
 #### 使用示例
 
 ```bash
 # 单源
-proxy-convert convert --source "./clash.yaml?type=clash"
+subforge convert --source "./clash.yaml?type=clash"
 
 # 多源（可带 name、flag）
-proxy-convert convert \
+subforge convert \
   --source "https://example.com/sub?type=clash&name=my&flag=clash" \
   --source "examples/sources/Eternal Network?type=singbox" \
   -o config.json
 
 # 使用配置文件（sources 格式与 --source 一致）
-proxy-convert convert --config examples/config.yaml -o config.json
+subforge convert --config examples/config.yaml -o config.json
 
 # 其他命令
-proxy-convert validate config.json
-proxy-convert template singbox --output template.json
-proxy-convert version
+subforge validate config.json
+subforge template singbox --output template.json
+subforge version
 ```
 
 ## 📋 插值规则系统 ✨
@@ -289,7 +291,7 @@ proxy-convert version
 程序会按以下顺序查找配置文件：
 
 1. 当前目录下的 `config.yaml` 或 `config.yml`
-2. 用户配置目录下的 `proxy-convert/config.yaml` 或 `config.yml`
+2. 用户配置目录下的 `subforge/config.yaml` 或 `config.yml`
 
 **配置文件优先级：**
 
@@ -299,7 +301,7 @@ proxy-convert version
 
 ```yaml
 # config.yaml
-user_agent: "ProxyConfigConverter/3.0.0"
+user_agent: "SubForge/2.0.0"
 timeout_seconds: 30
 retry_count: 3
 log_level: info
@@ -325,12 +327,12 @@ default_output_format: singbox
 
 ### 环境变量
 
-所有配置项均可通过环境变量覆盖，格式为 `PROXY_CONVERT_<KEY>`（嵌套键使用 `__`）：
+所有配置项均可通过环境变量覆盖，格式为 `SUBFORGE_<KEY>`（嵌套键使用 `__`）：
 
 ```bash
-export PROXY_CONVERT_LOG_LEVEL=debug
-export PROXY_CONVERT_TIMEOUT_SECONDS=60
-export PROXY_CONVERT_DEFAULT_OUTPUT_FORMAT=v2ray
+export SUBFORGE_LOG_LEVEL=debug
+export SUBFORGE_TIMEOUT_SECONDS=60
+export SUBFORGE_DEFAULT_OUTPUT_FORMAT=v2ray
 ```
 
 **配置优先级：** 命令行 > 环境变量 > 配置文件 > 默认值
