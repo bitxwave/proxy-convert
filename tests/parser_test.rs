@@ -990,3 +990,161 @@ fn test_parse_subscription_with_ssr_lines() {
     assert_eq!(servers[0].protocol, "ssr");
     assert_eq!(servers[1].protocol, "shadowsocks");
 }
+
+// ── Clash typed extract: ssr / socks5 / http / snell ────────────────────
+
+#[test]
+fn test_extract_clash_ssr() {
+    let config: clash::Config = serde_json::from_value(serde_json::json!({
+        "proxies": [{
+            "name": "ssr-1",
+            "type": "ssr",
+            "server": "1.2.3.4",
+            "port": 443,
+            "cipher": "aes-256-cfb",
+            "password": "ssrpass",
+            "obfs": "tls1.2_ticket_auth",
+            "protocol": "auth_aes128_md5",
+            "obfs-param": "cloudfront.net",
+            "protocol-param": "12345:abcdef",
+            "udp": true
+        }]
+    }))
+    .unwrap();
+    let source = make_source(Config::Clash(config), Protocol::Clash);
+    let servers = source.extract_servers().unwrap();
+    assert_eq!(servers.len(), 1);
+    let s = &servers[0];
+    assert_eq!(s.protocol, "ssr");
+    assert_eq!(s.password.as_deref(), Some("ssrpass"));
+    assert_eq!(s.method.as_deref(), Some("aes-256-cfb"));
+    match &s.params {
+        ProxyParams::ShadowsocksR {
+            cipher,
+            protocol,
+            obfs,
+            obfs_param,
+            protocol_param,
+            udp,
+            ..
+        } => {
+            assert_eq!(cipher, "aes-256-cfb");
+            assert_eq!(protocol, "auth_aes128_md5");
+            assert_eq!(obfs, "tls1.2_ticket_auth");
+            assert_eq!(obfs_param.as_deref(), Some("cloudfront.net"));
+            assert_eq!(protocol_param.as_deref(), Some("12345:abcdef"));
+            assert_eq!(*udp, Some(true));
+        }
+        _ => panic!("Expected ShadowsocksR, got {:?}", s.params),
+    }
+}
+
+#[test]
+fn test_extract_clash_socks5() {
+    let config: clash::Config = serde_json::from_value(serde_json::json!({
+        "proxies": [{
+            "name": "socks-1",
+            "type": "socks5",
+            "server": "1.2.3.4",
+            "port": 1080,
+            "username": "alice",
+            "password": "secret",
+            "tls": true,
+            "skip-cert-verify": true,
+            "udp": true
+        }]
+    }))
+    .unwrap();
+    let source = make_source(Config::Clash(config), Protocol::Clash);
+    let servers = source.extract_servers().unwrap();
+    assert_eq!(servers.len(), 1);
+    let s = &servers[0];
+    assert_eq!(s.protocol, "socks5");
+    assert_eq!(s.password.as_deref(), Some("secret"));
+    match &s.params {
+        ProxyParams::Socks {
+            version,
+            username,
+            tls,
+            udp,
+            ..
+        } => {
+            assert_eq!(version.as_deref(), Some("5"));
+            assert_eq!(username.as_deref(), Some("alice"));
+            let tls = tls.as_ref().expect("tls");
+            assert!(tls.enabled);
+            assert_eq!(tls.insecure, Some(true));
+            assert_eq!(*udp, Some(true));
+        }
+        _ => panic!("Expected Socks"),
+    }
+}
+
+#[test]
+fn test_extract_clash_http() {
+    let config: clash::Config = serde_json::from_value(serde_json::json!({
+        "proxies": [{
+            "name": "http-1",
+            "type": "http",
+            "server": "1.2.3.4",
+            "port": 8080,
+            "username": "admin",
+            "password": "admin"
+        }]
+    }))
+    .unwrap();
+    let source = make_source(Config::Clash(config), Protocol::Clash);
+    let servers = source.extract_servers().unwrap();
+    assert_eq!(servers.len(), 1);
+    let s = &servers[0];
+    assert_eq!(s.protocol, "http");
+    assert_eq!(s.password.as_deref(), Some("admin"));
+    match &s.params {
+        ProxyParams::Http { username, .. } => {
+            assert_eq!(username.as_deref(), Some("admin"));
+        }
+        _ => panic!("Expected Http"),
+    }
+}
+
+#[test]
+fn test_extract_clash_snell() {
+    let config: clash::Config = serde_json::from_value(serde_json::json!({
+        "proxies": [{
+            "name": "snell-1",
+            "type": "snell",
+            "server": "1.2.3.4",
+            "port": 443,
+            "psk": "yourpsk",
+            "version": 3,
+            "obfs-opts": {
+                "mode": "tls",
+                "host": "cdn.example.com"
+            }
+        }]
+    }))
+    .unwrap();
+    let source = make_source(Config::Clash(config), Protocol::Clash);
+    let servers = source.extract_servers().unwrap();
+    assert_eq!(servers.len(), 1);
+    let s = &servers[0];
+    assert_eq!(s.protocol, "snell");
+    match &s.params {
+        ProxyParams::Snell {
+            psk,
+            version,
+            obfs_opts,
+            ..
+        } => {
+            assert_eq!(psk, "yourpsk");
+            assert_eq!(*version, Some(3));
+            let obfs = obfs_opts.as_ref().and_then(|v| v.as_object()).unwrap();
+            assert_eq!(obfs.get("mode").and_then(|v| v.as_str()), Some("tls"));
+            assert_eq!(
+                obfs.get("host").and_then(|v| v.as_str()),
+                Some("cdn.example.com")
+            );
+        }
+        _ => panic!("Expected Snell"),
+    }
+}

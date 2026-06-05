@@ -420,12 +420,74 @@ impl Source {
                     None,
                 )
             }
-            _ => (
-                ProxyParams::Generic { extras: extras_map },
-                proxy_json.get("type")?.as_str()?.to_string(),
-                None,
+            clash::proxy::Proxy::Ssr(ssr) => (
+                ProxyParams::ShadowsocksR {
+                    cipher: ssr.cipher.clone(),
+                    protocol: ssr.protocol.clone().unwrap_or_default(),
+                    obfs: ssr.obfs.clone().unwrap_or_default(),
+                    obfs_param: ssr.obfs_param.clone(),
+                    protocol_param: ssr.protocol_param.clone(),
+                    udp: ssr.udp,
+                    extras: extras_map,
+                },
+                "ssr".to_string(),
+                Some(ssr.password.clone()),
+                Some(ssr.cipher.clone()),
+            ),
+            clash::proxy::Proxy::Socks5(s) => {
+                let tls = if s.tls.unwrap_or(false) {
+                    Some(TlsParams {
+                        enabled: true,
+                        server_name: None,
+                        insecure: s.skip_cert_verify,
+                        alpn: None,
+                    })
+                } else {
+                    None
+                };
+                (
+                    ProxyParams::Socks {
+                        version: Some("5".to_string()),
+                        username: s.username.clone(),
+                        tls,
+                        udp: s.udp,
+                        extras: extras_map,
+                    },
+                    "socks5".to_string(),
+                    s.password.clone(),
+                    None,
+                )
+            }
+            clash::proxy::Proxy::Http(h) => (
+                ProxyParams::Http {
+                    username: h.username.clone(),
+                    // mihomo's plain http proxy has no TLS toggle in this struct;
+                    // https variants come through as `type: http` + a separate
+                    // `tls: true` field passed via extras.
+                    tls: None,
+                    extras: extras_map,
+                },
+                "http".to_string(),
+                h.password.clone(),
                 None,
             ),
+            clash::proxy::Proxy::Snell(s) => {
+                let obfs_opts = s
+                    .obfs_opts
+                    .as_ref()
+                    .and_then(|o| serde_json::to_value(o).ok());
+                (
+                    ProxyParams::Snell {
+                        psk: s.psk.clone().unwrap_or_default(),
+                        version: s.version.map(|v| v as u32),
+                        obfs_opts,
+                        extras: extras_map,
+                    },
+                    "snell".to_string(),
+                    s.psk.clone(),
+                    None,
+                )
+            }
         };
 
         // Normalize protocol names: clash uses "ss" but sing-box uses "shadowsocks"

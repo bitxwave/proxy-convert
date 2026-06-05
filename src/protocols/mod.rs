@@ -109,6 +109,39 @@ pub enum ProxyParams {
         min_idle_session: Option<u32>,
         extras: HashMap<String, serde_json::Value>,
     },
+    /// ShadowsocksR (legacy SS variant; Clash-only).
+    ShadowsocksR {
+        cipher: String,
+        protocol: String,
+        obfs: String,
+        obfs_param: Option<String>,
+        protocol_param: Option<String>,
+        udp: Option<bool>,
+        extras: HashMap<String, serde_json::Value>,
+    },
+    /// SOCKS proxy. Shared between Clash (`socks5`) and sing-box (`socks`,
+    /// which adds the `version` discriminator).
+    Socks {
+        version: Option<String>,
+        username: Option<String>,
+        tls: Option<TlsParams>,
+        udp: Option<bool>,
+        extras: HashMap<String, serde_json::Value>,
+    },
+    /// HTTP/HTTPS proxy. Shared between Clash and sing-box.
+    Http {
+        username: Option<String>,
+        tls: Option<TlsParams>,
+        extras: HashMap<String, serde_json::Value>,
+    },
+    /// Snell (mihomo-only). v3+ uses `psk`+`version` and an optional
+    /// `obfs-opts` block whose shape is `{mode, host}`.
+    Snell {
+        psk: String,
+        version: Option<u32>,
+        obfs_opts: Option<serde_json::Value>,
+        extras: HashMap<String, serde_json::Value>,
+    },
     /// Fallback for protocols not yet fully typed.
     Generic {
         extras: HashMap<String, serde_json::Value>,
@@ -136,6 +169,10 @@ impl ProxyParams {
             | ProxyParams::Tuic { extras, .. }
             | ProxyParams::WireGuard { extras, .. }
             | ProxyParams::AnyTls { extras, .. }
+            | ProxyParams::ShadowsocksR { extras, .. }
+            | ProxyParams::Socks { extras, .. }
+            | ProxyParams::Http { extras, .. }
+            | ProxyParams::Snell { extras, .. }
             | ProxyParams::Generic { extras } => extras,
         }
     }
