@@ -9,6 +9,28 @@ use crate::core::error::Result;
 use crate::core::source::SourceMeta;
 use std::collections::HashMap;
 
+/// Parse a Hysteria-style bandwidth value to mbps.
+/// Accepts `"30 Mbps"`, `"30Mbps"`, `30`, `"100"` etc. Returns None if unparseable.
+fn parse_bandwidth_mbps_value(v: &serde_json::Value) -> Option<u32> {
+    if let Some(n) = v.as_u64() {
+        return Some(n as u32);
+    }
+    if let Some(s) = v.as_str() {
+        // Strip unit; tolerate "30 Mbps" / "30mbps" / "30M" / "30".
+        let digits: String = s.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if !digits.is_empty() {
+            return digits.parse::<u32>().ok();
+        }
+    }
+    None
+}
+
+/// Same as [`parse_bandwidth_mbps_value`] but takes a typed JSON Value
+/// directly (used by Hysteria v1 which stores `up`/`down` as Value).
+fn parse_bandwidth_mbps(v: &serde_json::Value) -> Option<u32> {
+    parse_bandwidth_mbps_value(v)
+}
+
 /// Configuration for different protocols (strongly typed)
 #[derive(Debug, Clone)]
 pub enum Config {
@@ -169,6 +191,199 @@ impl Source {
                     None,
                 )
             }
+            clash::proxy::Proxy::Vless(vless) => {
+                let tls = if vless.tls.unwrap_or(false) || vless.reality_opts.is_some() {
+                    Some(TlsParams {
+                        enabled: true,
+                        server_name: vless.servername.clone(),
+                        insecure: vless.skip_cert_verify,
+                        alpn: if vless.alpn.is_empty() {
+                            None
+                        } else {
+                            Some(vless.alpn.clone())
+                        },
+                    })
+                } else {
+                    None
+                };
+                let transport = vless.network.as_ref().and_then(|n| {
+                    if n == "tcp" || n == "none" {
+                        return None;
+                    }
+                    let mut tp = TransportParams {
+                        transport_type: n.clone(),
+                        path: None,
+                        host: None,
+                        service_name: None,
+                        headers: None,
+                        max_early_data: None,
+                        early_data_header_name: None,
+                    };
+                    if let Some(ref ws) = vless.ws_opts {
+                        tp.path = ws.path.clone();
+                    }
+                    if let Some(ref grpc) = vless.grpc_opts {
+                        tp.service_name = grpc.grpc_service_name.clone();
+                    }
+                    if let Some(ref h2) = vless.h2_opts {
+                        tp.path = h2.path.clone();
+                        tp.host = h2.host.clone();
+                    }
+                    Some(tp)
+                });
+                (
+                    ProxyParams::Vless {
+                        uuid: vless.uuid.clone(),
+                        flow: vless.flow.clone(),
+                        tls,
+                        transport,
+                        extras: extras_map,
+                    },
+                    "vless".to_string(),
+                    None,
+                    None,
+                )
+            }
+            clash::proxy::Proxy::Hysteria(h) => {
+                let tls = Some(TlsParams {
+                    enabled: true,
+                    server_name: h.sni.clone(),
+                    insecure: h.skip_cert_verify,
+                    alpn: if h.alpn.is_empty() {
+                        None
+                    } else {
+                        Some(h.alpn.clone())
+                    },
+                });
+                let up_mbps = parse_bandwidth_mbps(&h.up);
+                let down_mbps = parse_bandwidth_mbps(&h.down);
+                (
+                    ProxyParams::Hysteria {
+                        auth_str: h.auth_str.clone(),
+                        obfs: h.obfs.clone(),
+                        up_mbps,
+                        down_mbps,
+                        tls,
+                        extras: extras_map,
+                    },
+                    "hysteria".to_string(),
+                    h.auth_str.clone(),
+                    None,
+                )
+            }
+            clash::proxy::Proxy::Hysteria2(h2) => {
+                let tls = Some(TlsParams {
+                    enabled: true,
+                    server_name: h2.sni.clone(),
+                    insecure: h2.skip_cert_verify,
+                    alpn: if h2.alpn.is_empty() {
+                        None
+                    } else {
+                        Some(h2.alpn.clone())
+                    },
+                });
+                let up_mbps = h2.up.as_ref().and_then(parse_bandwidth_mbps_value);
+                let down_mbps = h2.down.as_ref().and_then(parse_bandwidth_mbps_value);
+                (
+                    ProxyParams::Hysteria2 {
+                        obfs: h2.obfs.clone(),
+                        obfs_password: h2.obfs_password.clone(),
+                        up_mbps,
+                        down_mbps,
+                        tls,
+                        extras: extras_map,
+                    },
+                    "hysteria2".to_string(),
+                    Some(h2.password.clone()),
+                    None,
+                )
+            }
+            clash::proxy::Proxy::Tuic(t) => {
+                let tls = Some(TlsParams {
+                    enabled: true,
+                    server_name: t.sni.clone(),
+                    insecure: t.skip_cert_verify,
+                    alpn: if t.alpn.is_empty() {
+                        None
+                    } else {
+                        Some(t.alpn.clone())
+                    },
+                });
+                let heartbeat = t.heartbeat_interval.map(|ms| format!("{}ms", ms));
+                (
+                    ProxyParams::Tuic {
+                        uuid: t.uuid.clone(),
+                        token: t.token.clone(),
+                        congestion_control: t.congestion_controller.clone(),
+                        udp_relay_mode: t.udp_relay_mode.clone(),
+                        zero_rtt_handshake: t.reduce_rtt,
+                        heartbeat,
+                        tls,
+                        extras: extras_map,
+                    },
+                    "tuic".to_string(),
+                    t.password.clone(),
+                    None,
+                )
+            }
+            clash::proxy::Proxy::Wireguard(wg) => {
+                // Normalize simplified vs full peers form to a single peers list.
+                let peers: Vec<crate::protocols::WireGuardPeerParams> = if let Some(ps) = &wg.peers {
+                    ps.iter()
+                        .map(|p| crate::protocols::WireGuardPeerParams {
+                            server: p.server.clone(),
+                            server_port: p.port,
+                            public_key: p.public_key.clone(),
+                            pre_shared_key: p.pre_shared_key.clone(),
+                            allowed_ips: if p.allowed_ips.is_empty() {
+                                vec!["0.0.0.0/0".to_string()]
+                            } else {
+                                p.allowed_ips.clone()
+                            },
+                            reserved: p.reserved.clone(),
+                            persistent_keepalive: p.persistent_keepalive,
+                        })
+                        .collect()
+                } else if let (Some(server), Some(port), Some(public_key)) =
+                    (&wg.server, wg.port, &wg.public_key)
+                {
+                    vec![crate::protocols::WireGuardPeerParams {
+                        server: server.clone(),
+                        server_port: port,
+                        public_key: public_key.clone(),
+                        pre_shared_key: wg.pre_shared_key.clone(),
+                        allowed_ips: if wg.allowed_ips.is_empty() {
+                            vec!["0.0.0.0/0".to_string()]
+                        } else {
+                            wg.allowed_ips.clone()
+                        },
+                        reserved: wg.reserved.clone(),
+                        persistent_keepalive: wg.persistent_keepalive,
+                    }]
+                } else {
+                    Vec::new()
+                };
+                // Local addresses: combine ipv4 + ipv6 with /32 / /128 masks.
+                let mut local_addresses = Vec::new();
+                if let Some(ip) = &wg.ip {
+                    local_addresses.push(format!("{}/32", ip));
+                }
+                if let Some(ipv6) = &wg.ipv6 {
+                    local_addresses.push(format!("{}/128", ipv6));
+                }
+                (
+                    ProxyParams::WireGuard {
+                        private_key: wg.private_key.clone(),
+                        local_addresses,
+                        mtu: wg.mtu,
+                        peers,
+                        extras: extras_map,
+                    },
+                    "wireguard".to_string(),
+                    None,
+                    None,
+                )
+            }
             clash::proxy::Proxy::Trojan(trojan) => {
                 let tls = Some(TlsParams {
                     enabled: true,
@@ -221,8 +436,25 @@ impl Source {
         };
 
         let name = proxy.name().to_string();
-        let server = proxy_json.get("server")?.as_str()?.to_string();
-        let port = proxy_json.get("port")?.as_u64()? as u16;
+        // WireGuard's top-level server/port are optional (full peers form can put
+        // them inside `peers[]`). Fall back to the first peer's server/port for
+        // such configs, then to empty / 0 if neither is present.
+        let (server, port) = if let clash::proxy::Proxy::Wireguard(wg) = proxy {
+            let s = wg
+                .server
+                .clone()
+                .or_else(|| wg.peers.as_ref().and_then(|ps| ps.first().map(|p| p.server.clone())))
+                .unwrap_or_default();
+            let p = wg
+                .port
+                .or_else(|| wg.peers.as_ref().and_then(|ps| ps.first().map(|p| p.port)))
+                .unwrap_or(0);
+            (s, p)
+        } else {
+            let s = proxy_json.get("server")?.as_str()?.to_string();
+            let p = proxy_json.get("port")?.as_u64()? as u16;
+            (s, p)
+        };
 
         Some(ProxyServer {
             name,
@@ -395,15 +627,82 @@ impl Source {
                 transport: Self::extract_singbox_transport_params(&v.transport),
                 extras: extras_map,
             },
-            singbox::outbound::Outbound::Hysteria2(h2) => ProxyParams::Hysteria2 {
-                obfs_password: h2.obfs.as_ref().and_then(|o| {
-                    serde_json::to_value(o)
-                        .ok()
-                        .and_then(|v| v.get("password").and_then(|p| p.as_str()).map(String::from))
-                }),
-                tls: Self::extract_singbox_tls_params(&h2.tls),
+            singbox::outbound::Outbound::Hysteria2(h2) => {
+                let obfs_value = h2.obfs.as_ref().and_then(|o| serde_json::to_value(o).ok());
+                let obfs_type = obfs_value
+                    .as_ref()
+                    .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(String::from));
+                let obfs_password = obfs_value
+                    .as_ref()
+                    .and_then(|v| v.get("password").and_then(|p| p.as_str()).map(String::from));
+                ProxyParams::Hysteria2 {
+                    obfs: obfs_type,
+                    obfs_password,
+                    up_mbps: h2.up_mbps,
+                    down_mbps: h2.down_mbps,
+                    tls: Self::extract_singbox_tls_params(&h2.tls),
+                    extras: extras_map,
+                }
+            }
+            singbox::outbound::Outbound::Hysteria(h) => ProxyParams::Hysteria {
+                auth_str: h.auth_str.clone().or_else(|| h.auth.clone()),
+                obfs: h.obfs.clone(),
+                up_mbps: Some(h.up_mbps),
+                down_mbps: Some(h.down_mbps),
+                tls: Self::extract_singbox_tls_params(&h.tls),
                 extras: extras_map,
             },
+            singbox::outbound::Outbound::Tuic(t) => ProxyParams::Tuic {
+                uuid: Some(t.uuid.clone()),
+                token: None,
+                congestion_control: t
+                    .congestion_control
+                    .as_ref()
+                    .and_then(|c| serde_json::to_value(c).ok())
+                    .and_then(|v| v.as_str().map(String::from)),
+                udp_relay_mode: t
+                    .udp_relay_mode
+                    .as_ref()
+                    .and_then(|c| serde_json::to_value(c).ok())
+                    .and_then(|v| v.as_str().map(String::from)),
+                zero_rtt_handshake: t.zero_rtt_handshake,
+                heartbeat: t.heartbeat.clone(),
+                tls: Self::extract_singbox_tls_params(&t.tls),
+                extras: extras_map,
+            },
+            singbox::outbound::Outbound::Wireguard(wg) => {
+                let peers = match &wg.peers {
+                    Some(ps) => ps
+                        .iter()
+                        .map(|p| crate::protocols::WireGuardPeerParams {
+                            server: p.server.clone().unwrap_or_default(),
+                            server_port: p.server_port.unwrap_or(0),
+                            public_key: p.public_key.clone().unwrap_or_default(),
+                            pre_shared_key: p.pre_shared_key.clone(),
+                            allowed_ips: p
+                                .allowed_ips
+                                .clone()
+                                .unwrap_or_else(|| vec!["0.0.0.0/0".to_string()]),
+                            reserved: p.reserved.as_ref().map(|r| {
+                                serde_json::Value::Array(
+                                    r.iter()
+                                        .map(|n| serde_json::Value::Number((*n).into()))
+                                        .collect(),
+                                )
+                            }),
+                            persistent_keepalive: None,
+                        })
+                        .collect(),
+                    None => Vec::new(),
+                };
+                ProxyParams::WireGuard {
+                    private_key: wg.private_key.clone().unwrap_or_default(),
+                    local_addresses: wg.local_address.clone().unwrap_or_default(),
+                    mtu: wg.mtu.map(|m| m as u32),
+                    peers,
+                    extras: extras_map,
+                }
+            }
             singbox::outbound::Outbound::Anytls(at) => ProxyParams::AnyTls {
                 tls: Self::extract_singbox_tls_params(&Some(at.tls.clone())),
                 idle_session_check_interval: at

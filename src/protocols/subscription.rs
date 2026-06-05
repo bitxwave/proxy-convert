@@ -54,6 +54,10 @@ pub fn parse_proxy_url(url: &str) -> Result<Option<ProxyServer>> {
         parse_hysteria2_url(url)
     } else if url.starts_with("anytls://") {
         parse_anytls_url(url)
+    } else if url.starts_with("hysteria://") {
+        parse_hysteria_url(url)
+    } else if url.starts_with("tuic://") {
+        parse_tuic_url(url)
     } else {
         tracing::warn!("Unsupported proxy URL: {}", url);
         Ok(None)
@@ -268,6 +272,12 @@ fn parse_vless_url(url: &str) -> Result<Option<ProxyServer>> {
     let mut transport_type = None;
     let mut path = None;
     let mut service_name = None;
+    let mut security = None;
+    let mut public_key = None;
+    let mut short_id = None;
+    let mut fingerprint = None;
+    let mut alpn: Option<Vec<String>> = None;
+    let mut insecure = None;
 
     if let Some(qs) = query_str {
         for (k, v) in url::form_urlencoded::parse(qs.as_bytes()) {
@@ -277,17 +287,34 @@ fn parse_vless_url(url: &str) -> Result<Option<ProxyServer>> {
                 "type" => transport_type = Some(v.into_owned()),
                 "path" => path = Some(v.into_owned()),
                 "serviceName" => service_name = Some(v.into_owned()),
+                "security" => security = Some(v.into_owned()),
+                "pbk" | "public-key" => public_key = Some(v.into_owned()),
+                "sid" | "short-id" => short_id = Some(v.into_owned()),
+                "fp" | "fingerprint" => fingerprint = Some(v.into_owned()),
+                "alpn" => {
+                    alpn = Some(v.split(',').map(|s| s.trim().to_string()).collect());
+                }
+                "allowInsecure" | "insecure" => insecure = Some(v == "1" || v == "true"),
                 _ => {}
             }
         }
     }
 
-    let tls = sni.as_ref().map(|s| crate::protocols::TlsParams {
-        enabled: true,
-        server_name: Some(s.clone()),
-        insecure: None,
-        alpn: None,
-    });
+    // VLESS implies TLS when security=tls/reality OR sni is set OR reality params present.
+    let tls_enabled = security.as_deref() == Some("tls")
+        || security.as_deref() == Some("reality")
+        || sni.is_some()
+        || public_key.is_some();
+    let tls = if tls_enabled {
+        Some(crate::protocols::TlsParams {
+            enabled: true,
+            server_name: sni,
+            insecure,
+            alpn,
+        })
+    } else {
+        None
+    };
 
     let transport = transport_type.as_ref().and_then(|t| {
         if t == "tcp" || t == "none" {
@@ -304,6 +331,33 @@ fn parse_vless_url(url: &str) -> Result<Option<ProxyServer>> {
         })
     });
 
+    // Surface reality / fingerprint via extras so the Clash emitter can rebuild
+    // reality-opts and client-fingerprint without losing them.
+    let mut extras = HashMap::new();
+    if let (Some(pk), _) = (public_key.as_ref(), short_id.as_ref()) {
+        let mut reality_opts = serde_json::Map::new();
+        reality_opts.insert(
+            "public-key".to_string(),
+            serde_json::Value::String(pk.clone()),
+        );
+        if let Some(sid) = short_id.as_ref() {
+            reality_opts.insert(
+                "short-id".to_string(),
+                serde_json::Value::String(sid.clone()),
+            );
+        }
+        extras.insert(
+            "reality-opts".to_string(),
+            serde_json::Value::Object(reality_opts),
+        );
+    }
+    if let Some(fp) = fingerprint {
+        extras.insert(
+            "client-fingerprint".to_string(),
+            serde_json::Value::String(fp),
+        );
+    }
+
     Ok(Some(ProxyServer {
         name,
         protocol: "vless".to_string(),
@@ -316,7 +370,7 @@ fn parse_vless_url(url: &str) -> Result<Option<ProxyServer>> {
             flow,
             tls,
             transport,
-            extras: HashMap::new(),
+            extras,
         },
     }))
 }
@@ -359,14 +413,20 @@ fn parse_hysteria2_url(url: &str) -> Result<Option<ProxyServer>> {
 
     let mut sni = None;
     let mut insecure = None;
+    let mut obfs = None;
     let mut obfs_password = None;
+    let mut alpn: Option<Vec<String>> = None;
 
     if let Some(qs) = query_str {
         for (k, v) in url::form_urlencoded::parse(qs.as_bytes()) {
             match k.as_ref() {
                 "sni" | "peer" => sni = Some(v.into_owned()),
                 "insecure" => insecure = Some(v == "1" || v == "true"),
-                "obfs-password" | "obfs" => obfs_password = Some(v.into_owned()),
+                "obfs" => obfs = Some(v.into_owned()),
+                "obfs-password" => obfs_password = Some(v.into_owned()),
+                "alpn" => {
+                    alpn = Some(v.split(',').map(|s| s.trim().to_string()).collect());
+                }
                 _ => {}
             }
         }
@@ -376,7 +436,7 @@ fn parse_hysteria2_url(url: &str) -> Result<Option<ProxyServer>> {
         enabled: true,
         server_name: sni,
         insecure,
-        alpn: None,
+        alpn,
     });
 
     Ok(Some(ProxyServer {
@@ -387,7 +447,10 @@ fn parse_hysteria2_url(url: &str) -> Result<Option<ProxyServer>> {
         password: Some(password.to_string()),
         method: None,
         params: ProxyParams::Hysteria2 {
+            obfs,
             obfs_password,
+            up_mbps: None,
+            down_mbps: None,
             tls,
             extras: HashMap::new(),
         },
@@ -493,6 +556,207 @@ fn parse_anytls_url(url: &str) -> Result<Option<ProxyServer>> {
             idle_session_check_interval: None,
             idle_session_timeout: None,
             min_idle_session: None,
+            extras: HashMap::new(),
+        },
+    }))
+}
+
+/// Split `host[:port]` (with optional IPv6 brackets) into `(host, port)`.
+/// Falls back to `default_port` when no port is present.
+fn split_authority(authority: &str, default_port: u16) -> Option<(String, u16)> {
+    if let Some(stripped) = authority.strip_prefix('[') {
+        let close = stripped.find(']')?;
+        let host = &stripped[..close];
+        let after = &stripped[close + 1..];
+        let port = if let Some(rest) = after.strip_prefix(':') {
+            rest.parse::<u16>().unwrap_or(default_port)
+        } else {
+            default_port
+        };
+        Some((host.to_string(), port))
+    } else if let Some(colon) = authority.rfind(':') {
+        let host = &authority[..colon];
+        let port = authority[colon + 1..].parse::<u16>().unwrap_or(default_port);
+        Some((host.to_string(), port))
+    } else {
+        Some((authority.to_string(), default_port))
+    }
+}
+
+/// Parse `hysteria://host:port?auth=&peer=&insecure=&upmbps=&downmbps=&obfs=#name`.
+/// (Hysteria v1 share-link format, used by some clients.)
+fn parse_hysteria_url(url: &str) -> Result<Option<ProxyServer>> {
+    let body = url.strip_prefix("hysteria://").unwrap_or("");
+
+    let (head, name) = match body.find('#') {
+        Some(p) => {
+            let raw = &body[p + 1..];
+            let n = urlencoding::decode(raw)
+                .unwrap_or_else(|_| std::borrow::Cow::Borrowed(raw))
+                .to_string();
+            (&body[..p], n)
+        }
+        None => (body, String::new()),
+    };
+
+    let (authority, query_str) = match head.find('?') {
+        Some(q) => (head[..q].trim_end_matches('/'), Some(&head[q + 1..])),
+        None => (head.trim_end_matches('/'), None),
+    };
+
+    let (server, port) = match split_authority(authority, 443) {
+        Some(s) => s,
+        None => return Ok(None),
+    };
+
+    let mut auth = None;
+    let mut sni = None;
+    let mut insecure = None;
+    let mut up_mbps = None;
+    let mut down_mbps = None;
+    let mut obfs = None;
+    let mut alpn: Option<Vec<String>> = None;
+
+    if let Some(qs) = query_str {
+        for (k, v) in url::form_urlencoded::parse(qs.as_bytes()) {
+            match k.as_ref() {
+                "auth" | "auth_str" | "auth-str" => auth = Some(v.into_owned()),
+                "peer" | "sni" => sni = Some(v.into_owned()),
+                "insecure" => insecure = Some(v == "1" || v == "true"),
+                "upmbps" | "up_mbps" => up_mbps = v.parse::<u32>().ok(),
+                "downmbps" | "down_mbps" => down_mbps = v.parse::<u32>().ok(),
+                "obfs" => obfs = Some(v.into_owned()),
+                "alpn" => alpn = Some(v.split(',').map(|s| s.trim().to_string()).collect()),
+                _ => {}
+            }
+        }
+    }
+
+    let tls = Some(crate::protocols::TlsParams {
+        enabled: true,
+        server_name: sni,
+        insecure,
+        alpn,
+    });
+
+    Ok(Some(ProxyServer {
+        name,
+        protocol: "hysteria".to_string(),
+        server,
+        port,
+        password: auth.clone(),
+        method: None,
+        params: ProxyParams::Hysteria {
+            auth_str: auth,
+            obfs,
+            up_mbps,
+            down_mbps,
+            tls,
+            extras: HashMap::new(),
+        },
+    }))
+}
+
+/// Parse `tuic://uuid:password@host:port?sni=&alpn=&allow_insecure=&congestion_control=&udp_relay_mode=#name`.
+/// (TUIC v5 share-link format. v4-style `tuic://token@...` is not supported here.)
+fn parse_tuic_url(url: &str) -> Result<Option<ProxyServer>> {
+    let body = url.strip_prefix("tuic://").unwrap_or("");
+
+    let (head, name) = match body.find('#') {
+        Some(p) => {
+            let raw = &body[p + 1..];
+            let n = urlencoding::decode(raw)
+                .unwrap_or_else(|_| std::borrow::Cow::Borrowed(raw))
+                .to_string();
+            (&body[..p], n)
+        }
+        None => (body, String::new()),
+    };
+
+    let at_pos = match head.find('@') {
+        Some(p) => p,
+        None => return Ok(None),
+    };
+    let userinfo = &head[..at_pos];
+    let after_auth = &head[at_pos + 1..];
+
+    let (uuid, password) = match userinfo.find(':') {
+        Some(c) => {
+            let u = urlencoding::decode(&userinfo[..c])
+                .unwrap_or_else(|_| std::borrow::Cow::Borrowed(&userinfo[..c]))
+                .to_string();
+            let p = urlencoding::decode(&userinfo[c + 1..])
+                .unwrap_or_else(|_| std::borrow::Cow::Borrowed(&userinfo[c + 1..]))
+                .to_string();
+            (Some(u), Some(p))
+        }
+        None => (
+            Some(
+                urlencoding::decode(userinfo)
+                    .unwrap_or_else(|_| std::borrow::Cow::Borrowed(userinfo))
+                    .to_string(),
+            ),
+            None,
+        ),
+    };
+
+    let (authority, query_str) = match after_auth.find('?') {
+        Some(q) => (after_auth[..q].trim_end_matches('/'), Some(&after_auth[q + 1..])),
+        None => (after_auth.trim_end_matches('/'), None),
+    };
+
+    let (server, port) = match split_authority(authority, 443) {
+        Some(s) => s,
+        None => return Ok(None),
+    };
+
+    let mut sni = None;
+    let mut insecure = None;
+    let mut alpn: Option<Vec<String>> = None;
+    let mut congestion_control = None;
+    let mut udp_relay_mode = None;
+    let mut zero_rtt = None;
+
+    if let Some(qs) = query_str {
+        for (k, v) in url::form_urlencoded::parse(qs.as_bytes()) {
+            match k.as_ref() {
+                "sni" | "peer" => sni = Some(v.into_owned()),
+                "allow_insecure" | "insecure" => insecure = Some(v == "1" || v == "true"),
+                "alpn" => alpn = Some(v.split(',').map(|s| s.trim().to_string()).collect()),
+                "congestion_control" | "congestion-control" | "congestion-controller" => {
+                    congestion_control = Some(v.into_owned())
+                }
+                "udp_relay_mode" | "udp-relay-mode" => udp_relay_mode = Some(v.into_owned()),
+                "reduce_rtt" | "zero_rtt_handshake" | "0rtt" => {
+                    zero_rtt = Some(v == "1" || v == "true")
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let tls = Some(crate::protocols::TlsParams {
+        enabled: true,
+        server_name: sni,
+        insecure,
+        alpn,
+    });
+
+    Ok(Some(ProxyServer {
+        name,
+        protocol: "tuic".to_string(),
+        server,
+        port,
+        password,
+        method: None,
+        params: ProxyParams::Tuic {
+            uuid,
+            token: None,
+            congestion_control,
+            udp_relay_mode,
+            zero_rtt_handshake: zero_rtt,
+            heartbeat: None,
+            tls,
             extras: HashMap::new(),
         },
     }))

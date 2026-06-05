@@ -95,6 +95,368 @@ impl SingboxProcessor {
         }
     }
 
+    /// Convert VLESS parameters to sing-box format. Reuses VMess transport
+    /// logic plus adds reality / utls handling.
+    pub fn convert_vless_params_to_singbox(
+        config: &mut serde_json::Map<String, serde_json::Value>,
+        node: &ProxyServer,
+    ) {
+        let params = &node.extras();
+
+        if let crate::protocols::ProxyParams::Vless { uuid, flow, .. } = &node.params {
+            config.insert(
+                "uuid".to_string(),
+                serde_json::Value::String(uuid.clone()),
+            );
+            if let Some(f) = flow {
+                config.insert("flow".to_string(), serde_json::Value::String(f.clone()));
+            }
+        }
+
+        if let Some(packet_encoding) = params.get("packet-encoding").or_else(|| params.get("packet_encoding")) {
+            config.insert("packet_encoding".to_string(), packet_encoding.clone());
+        }
+
+        // TLS: enabled if Clash had `tls: true` OR reality-opts present.
+        let mut tls_obj = serde_json::Map::new();
+        let mut tls_present = false;
+        if let Some(servername) = params.get("servername").or_else(|| params.get("sni")) {
+            tls_obj.insert("server_name".to_string(), servername.clone());
+            tls_present = true;
+        }
+        if let Some(skip) = params.get("skip-cert-verify") {
+            tls_obj.insert("insecure".to_string(), skip.clone());
+            tls_present = true;
+        }
+        if let Some(alpn) = params.get("alpn") {
+            tls_obj.insert("alpn".to_string(), alpn.clone());
+            tls_present = true;
+        }
+        if let Some(reality_opts) = params.get("reality-opts").or_else(|| params.get("reality_opts")) {
+            let mut reality = serde_json::Map::new();
+            reality.insert("enabled".to_string(), serde_json::Value::Bool(true));
+            if let Some(pk) = reality_opts.get("public-key").or_else(|| reality_opts.get("public_key")) {
+                reality.insert("public_key".to_string(), pk.clone());
+            }
+            if let Some(sid) = reality_opts.get("short-id").or_else(|| reality_opts.get("short_id")) {
+                reality.insert("short_id".to_string(), sid.clone());
+            }
+            tls_obj.insert("reality".to_string(), serde_json::Value::Object(reality));
+            tls_present = true;
+        }
+        if let Some(fingerprint) = params.get("client-fingerprint").or_else(|| params.get("fingerprint")) {
+            let mut utls = serde_json::Map::new();
+            utls.insert("enabled".to_string(), serde_json::Value::Bool(true));
+            utls.insert("fingerprint".to_string(), fingerprint.clone());
+            tls_obj.insert("utls".to_string(), serde_json::Value::Object(utls));
+            tls_present = true;
+        }
+        if let Some(tls) = params.get("tls") {
+            // mihomo writes `tls: true` (bool) or sing-box writes nested object.
+            if let Some(obj) = tls.as_object() {
+                for (k, v) in obj {
+                    tls_obj.entry(k.clone()).or_insert_with(|| v.clone());
+                }
+                tls_present = true;
+            } else if tls.as_bool().unwrap_or(false) {
+                tls_present = true;
+            }
+        }
+        if tls_present {
+            tls_obj
+                .entry("enabled".to_string())
+                .or_insert(serde_json::Value::Bool(true));
+            config.insert("tls".to_string(), serde_json::Value::Object(tls_obj));
+        }
+
+        // Transport (reuse the shared converter)
+        if let Some(transport_value) =
+            crate::protocols::transport_converter::clash_transport_to_singbox(params)
+        {
+            config.insert("transport".to_string(), transport_value);
+        }
+    }
+
+    /// Convert Hysteria2 parameters to sing-box format.
+    pub fn convert_hysteria2_params_to_singbox(
+        config: &mut serde_json::Map<String, serde_json::Value>,
+        node: &ProxyServer,
+    ) {
+        let params = &node.extras();
+
+        if let crate::protocols::ProxyParams::Hysteria2 {
+            obfs,
+            obfs_password,
+            up_mbps,
+            down_mbps,
+            ..
+        } = &node.params
+        {
+            if let Some(up) = up_mbps {
+                config.insert(
+                    "up_mbps".to_string(),
+                    serde_json::Value::Number((*up).into()),
+                );
+            }
+            if let Some(down) = down_mbps {
+                config.insert(
+                    "down_mbps".to_string(),
+                    serde_json::Value::Number((*down).into()),
+                );
+            }
+            if let Some(o) = obfs {
+                let mut o_obj = serde_json::Map::new();
+                o_obj.insert("type".to_string(), serde_json::Value::String(o.clone()));
+                if let Some(pw) = obfs_password {
+                    o_obj.insert(
+                        "password".to_string(),
+                        serde_json::Value::String(pw.clone()),
+                    );
+                }
+                config.insert("obfs".to_string(), serde_json::Value::Object(o_obj));
+            }
+        }
+
+        // TLS — reuse trojan-style converter (always enabled for hysteria2)
+        if let Some(tls_value) =
+            crate::protocols::transport_converter::clash_tls_to_singbox(params, true)
+        {
+            config.insert("tls".to_string(), tls_value);
+        }
+
+        if let Some(hop) = params.get("hop-interval").or_else(|| params.get("hop_interval")) {
+            if let Some(s) = hop.as_str() {
+                config.insert(
+                    "hop_interval".to_string(),
+                    serde_json::Value::String(s.to_string()),
+                );
+            } else if let Some(n) = hop.as_u64() {
+                config.insert(
+                    "hop_interval".to_string(),
+                    serde_json::Value::String(format!("{}s", n)),
+                );
+            }
+        }
+    }
+
+    /// Convert Hysteria v1 parameters to sing-box format.
+    pub fn convert_hysteria_params_to_singbox(
+        config: &mut serde_json::Map<String, serde_json::Value>,
+        node: &ProxyServer,
+    ) {
+        let params = &node.extras();
+
+        if let crate::protocols::ProxyParams::Hysteria {
+            auth_str,
+            obfs,
+            up_mbps,
+            down_mbps,
+            ..
+        } = &node.params
+        {
+            if let Some(a) = auth_str {
+                config.insert(
+                    "auth_str".to_string(),
+                    serde_json::Value::String(a.clone()),
+                );
+                // sing-box hysteria uses auth_str (not password) — drop the
+                // password key set earlier.
+                config.remove("password");
+            }
+            if let Some(o) = obfs {
+                config.insert("obfs".to_string(), serde_json::Value::String(o.clone()));
+            }
+            if let Some(up) = up_mbps {
+                config.insert(
+                    "up_mbps".to_string(),
+                    serde_json::Value::Number((*up).into()),
+                );
+            }
+            if let Some(down) = down_mbps {
+                config.insert(
+                    "down_mbps".to_string(),
+                    serde_json::Value::Number((*down).into()),
+                );
+            }
+        }
+
+        for (clash_key, singbox_key) in [
+            ("recv-window-conn", "recv_window_conn"),
+            ("recv-window", "recv_window"),
+            ("disable_mtu_discovery", "disable_mtu_discovery"),
+        ] {
+            if let Some(v) = params.get(clash_key).or_else(|| params.get(singbox_key)) {
+                config.insert(singbox_key.to_string(), v.clone());
+            }
+        }
+
+        if let Some(tls_value) =
+            crate::protocols::transport_converter::clash_tls_to_singbox(params, true)
+        {
+            config.insert("tls".to_string(), tls_value);
+        }
+    }
+
+    /// Convert TUIC v5 parameters to sing-box format.
+    pub fn convert_tuic_params_to_singbox(
+        config: &mut serde_json::Map<String, serde_json::Value>,
+        node: &ProxyServer,
+    ) {
+        let params = &node.extras();
+
+        if let crate::protocols::ProxyParams::Tuic {
+            uuid,
+            congestion_control,
+            udp_relay_mode,
+            zero_rtt_handshake,
+            heartbeat,
+            ..
+        } = &node.params
+        {
+            if let Some(u) = uuid {
+                config.insert("uuid".to_string(), serde_json::Value::String(u.clone()));
+            }
+            if let Some(cc) = congestion_control {
+                config.insert(
+                    "congestion_control".to_string(),
+                    serde_json::Value::String(cc.clone()),
+                );
+            }
+            if let Some(udp) = udp_relay_mode {
+                config.insert(
+                    "udp_relay_mode".to_string(),
+                    serde_json::Value::String(udp.clone()),
+                );
+            }
+            if let Some(rtt) = zero_rtt_handshake {
+                config.insert(
+                    "zero_rtt_handshake".to_string(),
+                    serde_json::Value::Bool(*rtt),
+                );
+            }
+            if let Some(hb) = heartbeat {
+                config.insert(
+                    "heartbeat".to_string(),
+                    serde_json::Value::String(hb.clone()),
+                );
+            }
+        }
+
+        // TLS: tuic is always over TLS; respect disable-sni when present.
+        if let Some(tls_value) =
+            crate::protocols::transport_converter::clash_tls_to_singbox(params, true)
+        {
+            let mut tls_obj = match tls_value {
+                serde_json::Value::Object(o) => o,
+                _ => serde_json::Map::new(),
+            };
+            if let Some(disable_sni) = params.get("disable-sni").or_else(|| params.get("disable_sni")) {
+                tls_obj.insert("disable_sni".to_string(), disable_sni.clone());
+            }
+            if let Some(fingerprint) = params
+                .get("client-fingerprint")
+                .or_else(|| params.get("fingerprint"))
+            {
+                let mut utls = serde_json::Map::new();
+                utls.insert("enabled".to_string(), serde_json::Value::Bool(true));
+                utls.insert("fingerprint".to_string(), fingerprint.clone());
+                tls_obj.insert("utls".to_string(), serde_json::Value::Object(utls));
+            }
+            config.insert("tls".to_string(), serde_json::Value::Object(tls_obj));
+        }
+    }
+
+    /// Convert WireGuard parameters to sing-box format.
+    /// Always emits a `peers` array; mihomo's "simplified" form (top-level
+    /// peer fields) is normalized by `parse_clash_proxy` already.
+    pub fn convert_wireguard_params_to_singbox(
+        config: &mut serde_json::Map<String, serde_json::Value>,
+        node: &ProxyServer,
+    ) {
+        // sing-box wireguard doesn't have top-level password / server / server_port
+        // when peers are used. Drop them; we'll re-emit from typed peers.
+        config.remove("password");
+
+        if let crate::protocols::ProxyParams::WireGuard {
+            private_key,
+            local_addresses,
+            mtu,
+            peers,
+            ..
+        } = &node.params
+        {
+            config.insert(
+                "private_key".to_string(),
+                serde_json::Value::String(private_key.clone()),
+            );
+            if !local_addresses.is_empty() {
+                config.insert(
+                    "local_address".to_string(),
+                    serde_json::Value::Array(
+                        local_addresses
+                            .iter()
+                            .map(|s| serde_json::Value::String(s.clone()))
+                            .collect(),
+                    ),
+                );
+            }
+            if let Some(m) = mtu {
+                config.insert(
+                    "mtu".to_string(),
+                    serde_json::Value::Number((*m).into()),
+                );
+            }
+            // Drop our top-level placeholder server/server_port; sing-box wants
+            // them inside peers when peers is present.
+            if !peers.is_empty() {
+                config.remove("server");
+                config.remove("server_port");
+                let peers_arr: Vec<serde_json::Value> = peers
+                    .iter()
+                    .map(|p| {
+                        let mut po = serde_json::Map::new();
+                        po.insert(
+                            "server".to_string(),
+                            serde_json::Value::String(p.server.clone()),
+                        );
+                        po.insert(
+                            "server_port".to_string(),
+                            serde_json::Value::Number(p.server_port.into()),
+                        );
+                        po.insert(
+                            "public_key".to_string(),
+                            serde_json::Value::String(p.public_key.clone()),
+                        );
+                        if let Some(psk) = &p.pre_shared_key {
+                            po.insert(
+                                "pre_shared_key".to_string(),
+                                serde_json::Value::String(psk.clone()),
+                            );
+                        }
+                        po.insert(
+                            "allowed_ips".to_string(),
+                            serde_json::Value::Array(
+                                p.allowed_ips
+                                    .iter()
+                                    .map(|s| serde_json::Value::String(s.clone()))
+                                    .collect(),
+                            ),
+                        );
+                        if let Some(reserved) = &p.reserved {
+                            // mihomo accepts list `[209,98,59]` or string `"U4An"`.
+                            // sing-box wants list-of-bytes; pass through array as-is.
+                            if reserved.is_array() {
+                                po.insert("reserved".to_string(), reserved.clone());
+                            }
+                        }
+                        serde_json::Value::Object(po)
+                    })
+                    .collect();
+                config.insert("peers".to_string(), serde_json::Value::Array(peers_arr));
+            }
+        }
+    }
+
     /// Convert Trojan parameters to Sing-box format
     /// Handles both Clash-style flat params (sni, skip-cert-verify) and
     /// Sing-box-style nested objects (tls: {enabled, server_name, insecure})
@@ -257,6 +619,11 @@ impl ProtocolProcessor for SingboxProcessor {
         let is_vmess = node.protocol == "vmess";
         let is_trojan = node.protocol == "trojan";
         let is_anytls = node.protocol == "anytls";
+        let is_vless = node.protocol == "vless";
+        let is_hysteria2 = node.protocol == "hysteria2";
+        let is_hysteria = node.protocol == "hysteria";
+        let is_tuic = node.protocol == "tuic";
+        let is_wireguard = node.protocol == "wireguard";
 
         let protocol_type = if node.protocol == "ss" {
             "shadowsocks".to_string()
@@ -308,6 +675,16 @@ impl ProtocolProcessor for SingboxProcessor {
             Self::convert_trojan_params_to_singbox(&mut config, &node.extras());
         } else if is_anytls {
             Self::convert_anytls_params_to_singbox(&mut config, &node.extras());
+        } else if is_vless {
+            Self::convert_vless_params_to_singbox(&mut config, node);
+        } else if is_hysteria2 {
+            Self::convert_hysteria2_params_to_singbox(&mut config, node);
+        } else if is_hysteria {
+            Self::convert_hysteria_params_to_singbox(&mut config, node);
+        } else if is_tuic {
+            Self::convert_tuic_params_to_singbox(&mut config, node);
+        } else if is_wireguard {
+            Self::convert_wireguard_params_to_singbox(&mut config, node);
         } else {
             // Generic parameter handling
             // Skip fields that are already handled or not needed in sing-box

@@ -436,6 +436,402 @@ fn test_parse_anytls_url() {
     assert_eq!(s2.port, 443);
 }
 
+// ── VLESS / Hysteria2 / Hysteria / TUIC / WireGuard tests ───────────────
+
+#[test]
+fn test_extract_clash_vless_with_reality() {
+    let config: clash::Config = serde_json::from_value(serde_json::json!({
+        "proxies": [{
+            "name": "vless-reality",
+            "type": "vless",
+            "server": "1.2.3.4",
+            "port": 443,
+            "uuid": "00000000-0000-0000-0000-000000000001",
+            "flow": "xtls-rprx-vision",
+            "tls": true,
+            "servername": "example.com",
+            "client-fingerprint": "chrome",
+            "reality-opts": {
+                "public-key": "abc",
+                "short-id": "ff"
+            },
+            "network": "tcp"
+        }]
+    }))
+    .unwrap();
+    let source = make_source(Config::Clash(config), Protocol::Clash);
+    let servers = source.extract_servers().unwrap();
+    assert_eq!(servers.len(), 1);
+    assert_eq!(servers[0].protocol, "vless");
+    match &servers[0].params {
+        ProxyParams::Vless { uuid, flow, tls, .. } => {
+            assert_eq!(uuid, "00000000-0000-0000-0000-000000000001");
+            assert_eq!(flow.as_deref(), Some("xtls-rprx-vision"));
+            assert!(tls.is_some());
+        }
+        _ => panic!("Expected Vless params"),
+    }
+}
+
+#[test]
+fn test_clash_vless_reality_to_singbox_emits_reality() {
+    use proxy_convert::protocols::singbox::template_processor::SingboxProcessor;
+    use proxy_convert::protocols::ProtocolProcessor;
+
+    let config: clash::Config = serde_json::from_value(serde_json::json!({
+        "proxies": [{
+            "name": "vless-reality",
+            "type": "vless",
+            "server": "1.2.3.4",
+            "port": 443,
+            "uuid": "00000000-0000-0000-0000-000000000001",
+            "flow": "xtls-rprx-vision",
+            "tls": true,
+            "servername": "example.com",
+            "client-fingerprint": "chrome",
+            "reality-opts": {"public-key": "PK", "short-id": "SID"}
+        }]
+    }))
+    .unwrap();
+    let source = make_source(Config::Clash(config), Protocol::Clash);
+    let servers = source.extract_servers().unwrap();
+    let p = SingboxProcessor;
+    let json: serde_json::Value = serde_json::from_str(&p.create_node_config(&servers[0])).unwrap();
+    assert_eq!(json["type"], "vless");
+    assert_eq!(json["uuid"], "00000000-0000-0000-0000-000000000001");
+    assert_eq!(json["flow"], "xtls-rprx-vision");
+    assert_eq!(json["tls"]["enabled"], true);
+    assert_eq!(json["tls"]["server_name"], "example.com");
+    assert_eq!(json["tls"]["reality"]["enabled"], true);
+    assert_eq!(json["tls"]["reality"]["public_key"], "PK");
+    assert_eq!(json["tls"]["reality"]["short_id"], "SID");
+    assert_eq!(json["tls"]["utls"]["fingerprint"], "chrome");
+}
+
+#[test]
+fn test_extract_clash_hysteria2() {
+    let config: clash::Config = serde_json::from_value(serde_json::json!({
+        "proxies": [{
+            "name": "hy2",
+            "type": "hysteria2",
+            "server": "1.2.3.4",
+            "port": 443,
+            "password": "pw",
+            "up": "30 Mbps",
+            "down": "200 Mbps",
+            "obfs": "salamander",
+            "obfs-password": "obfs-pw",
+            "sni": "host.com",
+            "skip-cert-verify": true,
+            "alpn": ["h3"]
+        }]
+    }))
+    .unwrap();
+    let source = make_source(Config::Clash(config), Protocol::Clash);
+    let servers = source.extract_servers().unwrap();
+    assert_eq!(servers.len(), 1);
+    assert_eq!(servers[0].protocol, "hysteria2");
+    match &servers[0].params {
+        ProxyParams::Hysteria2 {
+            obfs,
+            obfs_password,
+            up_mbps,
+            down_mbps,
+            tls,
+            ..
+        } => {
+            assert_eq!(obfs.as_deref(), Some("salamander"));
+            assert_eq!(obfs_password.as_deref(), Some("obfs-pw"));
+            assert_eq!(*up_mbps, Some(30));
+            assert_eq!(*down_mbps, Some(200));
+            assert_eq!(tls.as_ref().unwrap().server_name.as_deref(), Some("host.com"));
+        }
+        _ => panic!("Expected Hysteria2 params"),
+    }
+}
+
+#[test]
+fn test_clash_hysteria2_to_singbox_emits_obfs_and_mbps() {
+    use proxy_convert::protocols::singbox::template_processor::SingboxProcessor;
+    use proxy_convert::protocols::ProtocolProcessor;
+
+    let config: clash::Config = serde_json::from_value(serde_json::json!({
+        "proxies": [{
+            "name": "hy2",
+            "type": "hysteria2",
+            "server": "host.com",
+            "port": 443,
+            "password": "pw",
+            "up": "30 Mbps",
+            "down": "200 Mbps",
+            "obfs": "salamander",
+            "obfs-password": "obfs-pw",
+            "sni": "host.com"
+        }]
+    }))
+    .unwrap();
+    let source = make_source(Config::Clash(config), Protocol::Clash);
+    let servers = source.extract_servers().unwrap();
+    let p = SingboxProcessor;
+    let json: serde_json::Value = serde_json::from_str(&p.create_node_config(&servers[0])).unwrap();
+    assert_eq!(json["type"], "hysteria2");
+    assert_eq!(json["password"], "pw");
+    assert_eq!(json["up_mbps"], 30);
+    assert_eq!(json["down_mbps"], 200);
+    assert_eq!(json["obfs"]["type"], "salamander");
+    assert_eq!(json["obfs"]["password"], "obfs-pw");
+    assert_eq!(json["tls"]["enabled"], true);
+    assert_eq!(json["tls"]["server_name"], "host.com");
+}
+
+#[test]
+fn test_extract_clash_hysteria_v1() {
+    let config: clash::Config = serde_json::from_value(serde_json::json!({
+        "proxies": [{
+            "name": "hy",
+            "type": "hysteria",
+            "server": "h1.example.com",
+            "port": 443,
+            "auth-str": "pwd",
+            "up": "30",
+            "down": "200",
+            "obfs": "obfs-str",
+            "alpn": ["h3"],
+            "protocol": "udp",
+            "sni": "h1.example.com"
+        }]
+    }))
+    .unwrap();
+    let source = make_source(Config::Clash(config), Protocol::Clash);
+    let servers = source.extract_servers().unwrap();
+    assert_eq!(servers.len(), 1);
+    assert_eq!(servers[0].protocol, "hysteria");
+    match &servers[0].params {
+        ProxyParams::Hysteria { auth_str, obfs, up_mbps, .. } => {
+            assert_eq!(auth_str.as_deref(), Some("pwd"));
+            assert_eq!(obfs.as_deref(), Some("obfs-str"));
+            assert_eq!(*up_mbps, Some(30));
+        }
+        _ => panic!("Expected Hysteria params"),
+    }
+}
+
+#[test]
+fn test_clash_hysteria_v1_to_singbox_uses_auth_str() {
+    use proxy_convert::protocols::singbox::template_processor::SingboxProcessor;
+    use proxy_convert::protocols::ProtocolProcessor;
+
+    let config: clash::Config = serde_json::from_value(serde_json::json!({
+        "proxies": [{
+            "name": "hy",
+            "type": "hysteria",
+            "server": "h.com",
+            "port": 443,
+            "auth-str": "pwd",
+            "up": "30 Mbps",
+            "down": "200 Mbps",
+            "sni": "h.com"
+        }]
+    }))
+    .unwrap();
+    let source = make_source(Config::Clash(config), Protocol::Clash);
+    let servers = source.extract_servers().unwrap();
+    let p = SingboxProcessor;
+    let json: serde_json::Value = serde_json::from_str(&p.create_node_config(&servers[0])).unwrap();
+    assert_eq!(json["type"], "hysteria");
+    assert_eq!(json["auth_str"], "pwd");
+    assert!(json.get("password").is_none(), "hysteria should drop password key");
+    assert_eq!(json["up_mbps"], 30);
+    assert_eq!(json["down_mbps"], 200);
+}
+
+#[test]
+fn test_extract_clash_tuic_v5() {
+    let config: clash::Config = serde_json::from_value(serde_json::json!({
+        "proxies": [{
+            "name": "tuic",
+            "type": "tuic",
+            "server": "tuic.example.com",
+            "port": 443,
+            "uuid": "00000000-0000-0000-0000-000000000001",
+            "password": "pw",
+            "congestion-controller": "bbr",
+            "udp-relay-mode": "native",
+            "reduce-rtt": true,
+            "heartbeat-interval": 10000,
+            "alpn": ["h3"],
+            "sni": "tuic.example.com",
+            "skip-cert-verify": true
+        }]
+    }))
+    .unwrap();
+    let source = make_source(Config::Clash(config), Protocol::Clash);
+    let servers = source.extract_servers().unwrap();
+    assert_eq!(servers.len(), 1);
+    assert_eq!(servers[0].protocol, "tuic");
+    match &servers[0].params {
+        ProxyParams::Tuic { uuid, congestion_control, udp_relay_mode, zero_rtt_handshake, heartbeat, .. } => {
+            assert_eq!(uuid.as_deref(), Some("00000000-0000-0000-0000-000000000001"));
+            assert_eq!(congestion_control.as_deref(), Some("bbr"));
+            assert_eq!(udp_relay_mode.as_deref(), Some("native"));
+            assert_eq!(*zero_rtt_handshake, Some(true));
+            assert_eq!(heartbeat.as_deref(), Some("10000ms"));
+        }
+        _ => panic!("Expected Tuic params"),
+    }
+}
+
+#[test]
+fn test_clash_tuic_to_singbox_emits_v5_fields() {
+    use proxy_convert::protocols::singbox::template_processor::SingboxProcessor;
+    use proxy_convert::protocols::ProtocolProcessor;
+
+    let config: clash::Config = serde_json::from_value(serde_json::json!({
+        "proxies": [{
+            "name": "tuic",
+            "type": "tuic",
+            "server": "h.com",
+            "port": 443,
+            "uuid": "U",
+            "password": "P",
+            "congestion-controller": "bbr",
+            "udp-relay-mode": "native",
+            "heartbeat-interval": 10000,
+            "sni": "h.com"
+        }]
+    }))
+    .unwrap();
+    let source = make_source(Config::Clash(config), Protocol::Clash);
+    let servers = source.extract_servers().unwrap();
+    let p = SingboxProcessor;
+    let json: serde_json::Value = serde_json::from_str(&p.create_node_config(&servers[0])).unwrap();
+    assert_eq!(json["type"], "tuic");
+    assert_eq!(json["uuid"], "U");
+    assert_eq!(json["password"], "P");
+    assert_eq!(json["congestion_control"], "bbr");
+    assert_eq!(json["udp_relay_mode"], "native");
+    assert_eq!(json["heartbeat"], "10000ms");
+}
+
+#[test]
+fn test_extract_clash_wireguard_simplified() {
+    let config: clash::Config = serde_json::from_value(serde_json::json!({
+        "proxies": [{
+            "name": "wg",
+            "type": "wireguard",
+            "server": "1.2.3.4",
+            "port": 51820,
+            "ip": "172.16.0.2",
+            "ipv6": "fd::1",
+            "private-key": "PRIV",
+            "public-key": "PUB",
+            "allowed-ips": ["0.0.0.0/0"],
+            "udp": true,
+            "mtu": 1408
+        }]
+    }))
+    .unwrap();
+    let source = make_source(Config::Clash(config), Protocol::Clash);
+    let servers = source.extract_servers().unwrap();
+    assert_eq!(servers.len(), 1);
+    assert_eq!(servers[0].protocol, "wireguard");
+    assert_eq!(servers[0].server, "1.2.3.4");
+    assert_eq!(servers[0].port, 51820);
+    match &servers[0].params {
+        ProxyParams::WireGuard { private_key, local_addresses, peers, mtu, .. } => {
+            assert_eq!(private_key, "PRIV");
+            assert!(local_addresses.contains(&"172.16.0.2/32".to_string()));
+            assert!(local_addresses.contains(&"fd::1/128".to_string()));
+            assert_eq!(*mtu, Some(1408));
+            assert_eq!(peers.len(), 1);
+            assert_eq!(peers[0].server, "1.2.3.4");
+            assert_eq!(peers[0].public_key, "PUB");
+        }
+        _ => panic!("Expected WireGuard params"),
+    }
+}
+
+#[test]
+fn test_clash_wireguard_full_peers_to_singbox() {
+    use proxy_convert::protocols::singbox::template_processor::SingboxProcessor;
+    use proxy_convert::protocols::ProtocolProcessor;
+
+    let config: clash::Config = serde_json::from_value(serde_json::json!({
+        "proxies": [{
+            "name": "wg",
+            "type": "wireguard",
+            "ip": "172.16.0.2",
+            "private-key": "PRIV",
+            "peers": [
+                {
+                    "server": "1.2.3.4",
+                    "port": 51820,
+                    "public-key": "PUB",
+                    "allowed-ips": ["0.0.0.0/0"],
+                    "reserved": [209, 98, 59]
+                }
+            ]
+        }]
+    }))
+    .unwrap();
+    let source = make_source(Config::Clash(config), Protocol::Clash);
+    let servers = source.extract_servers().unwrap();
+    let p = SingboxProcessor;
+    let json: serde_json::Value = serde_json::from_str(&p.create_node_config(&servers[0])).unwrap();
+    assert_eq!(json["type"], "wireguard");
+    assert_eq!(json["private_key"], "PRIV");
+    assert_eq!(json["local_address"][0], "172.16.0.2/32");
+    assert_eq!(json["peers"][0]["server"], "1.2.3.4");
+    assert_eq!(json["peers"][0]["server_port"], 51820);
+    assert_eq!(json["peers"][0]["public_key"], "PUB");
+    assert_eq!(json["peers"][0]["allowed_ips"][0], "0.0.0.0/0");
+    assert_eq!(json["peers"][0]["reserved"][0], 209);
+}
+
+#[test]
+fn test_parse_hysteria_url() {
+    use proxy_convert::protocols::subscription::parse_proxy_url;
+    let s = parse_proxy_url("hysteria://h.example.com:443?auth=pwd&peer=h.com&upmbps=30&downmbps=200&obfs=mystic#hy1")
+        .unwrap()
+        .expect("parsed");
+    assert_eq!(s.protocol, "hysteria");
+    assert_eq!(s.server, "h.example.com");
+    assert_eq!(s.port, 443);
+    assert_eq!(s.password.as_deref(), Some("pwd"));
+    match &s.params {
+        ProxyParams::Hysteria { auth_str, up_mbps, down_mbps, obfs, .. } => {
+            assert_eq!(auth_str.as_deref(), Some("pwd"));
+            assert_eq!(*up_mbps, Some(30));
+            assert_eq!(*down_mbps, Some(200));
+            assert_eq!(obfs.as_deref(), Some("mystic"));
+        }
+        _ => panic!("Expected Hysteria"),
+    }
+}
+
+#[test]
+fn test_parse_tuic_v5_url() {
+    use proxy_convert::protocols::subscription::parse_proxy_url;
+    let s = parse_proxy_url("tuic://U:P@host.com:443/?sni=host.com&congestion_control=bbr&udp_relay_mode=native&allow_insecure=1#tuic1")
+        .unwrap()
+        .expect("parsed");
+    assert_eq!(s.protocol, "tuic");
+    assert_eq!(s.server, "host.com");
+    assert_eq!(s.port, 443);
+    assert_eq!(s.password.as_deref(), Some("P"));
+    match &s.params {
+        ProxyParams::Tuic { uuid, congestion_control, udp_relay_mode, tls, .. } => {
+            assert_eq!(uuid.as_deref(), Some("U"));
+            assert_eq!(congestion_control.as_deref(), Some("bbr"));
+            assert_eq!(udp_relay_mode.as_deref(), Some("native"));
+            let t = tls.as_ref().unwrap();
+            assert_eq!(t.server_name.as_deref(), Some("host.com"));
+            assert_eq!(t.insecure, Some(true));
+        }
+        _ => panic!("Expected Tuic"),
+    }
+}
+
 #[test]
 fn test_extract_clash_multiple_proxies() {
     let config: clash::Config = serde_json::from_value(serde_json::json!({

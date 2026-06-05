@@ -64,8 +64,38 @@ pub enum ProxyParams {
         extras: HashMap<String, serde_json::Value>,
     },
     Hysteria2 {
+        obfs: Option<String>,
         obfs_password: Option<String>,
+        up_mbps: Option<u32>,
+        down_mbps: Option<u32>,
         tls: Option<TlsParams>,
+        extras: HashMap<String, serde_json::Value>,
+    },
+    Hysteria {
+        auth_str: Option<String>,
+        obfs: Option<String>,
+        up_mbps: Option<u32>,
+        down_mbps: Option<u32>,
+        tls: Option<TlsParams>,
+        extras: HashMap<String, serde_json::Value>,
+    },
+    Tuic {
+        uuid: Option<String>,
+        token: Option<String>,
+        congestion_control: Option<String>,
+        udp_relay_mode: Option<String>,
+        zero_rtt_handshake: Option<bool>,
+        heartbeat: Option<String>,
+        tls: Option<TlsParams>,
+        extras: HashMap<String, serde_json::Value>,
+    },
+    /// WireGuard params. mihomo accepts both "simplified" (top-level peer) and
+    /// full (peers list); we always normalize to a `peers` list when emitting.
+    WireGuard {
+        private_key: String,
+        local_addresses: Vec<String>,
+        mtu: Option<u32>,
+        peers: Vec<WireGuardPeerParams>,
         extras: HashMap<String, serde_json::Value>,
     },
     /// AnyTLS protocol (https://github.com/anytls/anytls-go).
@@ -102,10 +132,27 @@ impl ProxyParams {
             | ProxyParams::Trojan { extras, .. }
             | ProxyParams::Vless { extras, .. }
             | ProxyParams::Hysteria2 { extras, .. }
+            | ProxyParams::Hysteria { extras, .. }
+            | ProxyParams::Tuic { extras, .. }
+            | ProxyParams::WireGuard { extras, .. }
             | ProxyParams::AnyTls { extras, .. }
             | ProxyParams::Generic { extras } => extras,
         }
     }
+}
+
+/// WireGuard peer params (typed, used inside ProxyParams::WireGuard).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WireGuardPeerParams {
+    pub server: String,
+    pub server_port: u16,
+    pub public_key: String,
+    pub pre_shared_key: Option<String>,
+    pub allowed_ips: Vec<String>,
+    /// Reserved bytes (mihomo allows list `[209,98,59]` or string `"U4An"`).
+    /// Stored as raw JSON to keep the input shape verbatim.
+    pub reserved: Option<serde_json::Value>,
+    pub persistent_keepalive: Option<u32>,
 }
 
 /// TLS configuration (shared across protocols)
