@@ -778,6 +778,50 @@ impl Source {
                 min_idle_session: at.min_idle_session,
                 extras: extras_map,
             },
+            singbox::outbound::Outbound::Socks(s) => ProxyParams::Socks {
+                version: s.version.clone(),
+                username: s.username.clone(),
+                tls: None, // sing-box socks is plain; tls belongs to higher-level wrappers.
+                udp: None,
+                extras: extras_map,
+            },
+            singbox::outbound::Outbound::Http(h) => ProxyParams::Http {
+                username: h.username.clone(),
+                tls: Self::extract_singbox_tls_params(&h.tls),
+                extras: extras_map,
+            },
+            singbox::outbound::Outbound::Ssh(ssh) => ProxyParams::Ssh {
+                user: ssh.user.clone(),
+                private_key: ssh.private_key.clone(),
+                private_key_path: ssh.private_key_path.clone(),
+                private_key_passphrase: ssh.private_key_passphrase.clone(),
+                host_key: ssh.host_key.clone(),
+                host_key_algorithms: ssh.host_key_algorithms.clone(),
+                extras: extras_map,
+            },
+            singbox::outbound::Outbound::Shadowtls(st) => {
+                // ShadowTLSVersion serializes as "V1" / "V2" / "V3"; map back to 1/2/3
+                // so cross-format conversion can compare and re-emit numeric versions.
+                let version = serde_json::to_value(&st.version).ok().and_then(|v| {
+                    v.as_str().and_then(|s| match s {
+                        "V1" => Some(1),
+                        "V2" => Some(2),
+                        "V3" => Some(3),
+                        _ => None,
+                    })
+                });
+                ProxyParams::ShadowTls {
+                    version,
+                    tls: Self::extract_singbox_tls_params(&Some(st.tls.clone())),
+                    extras: extras_map,
+                }
+            }
+            singbox::outbound::Outbound::Naive(n) => ProxyParams::Naive {
+                username: n.username.clone(),
+                quic: n.quic,
+                tls: Self::extract_singbox_tls_params(&n.tls),
+                extras: extras_map,
+            },
             _ => ProxyParams::Generic { extras: extras_map },
         };
 

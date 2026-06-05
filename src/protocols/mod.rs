@@ -142,6 +142,31 @@ pub enum ProxyParams {
         obfs_opts: Option<serde_json::Value>,
         extras: HashMap<String, serde_json::Value>,
     },
+    /// SSH (sing-box-only). Either password or private-key auth; we keep
+    /// both raw because URL share-links can't represent keys at all.
+    Ssh {
+        user: Option<String>,
+        private_key: Option<String>,
+        private_key_path: Option<String>,
+        private_key_passphrase: Option<String>,
+        host_key: Option<Vec<String>>,
+        host_key_algorithms: Option<Vec<String>>,
+        extras: HashMap<String, serde_json::Value>,
+    },
+    /// ShadowTLS (sing-box-only). Wraps any TCP outbound under TLS;
+    /// version is 1/2/3 and `tls` is the inner TLS block.
+    ShadowTls {
+        version: Option<u8>,
+        tls: Option<TlsParams>,
+        extras: HashMap<String, serde_json::Value>,
+    },
+    /// Naive (sing-box-only). HTTP/2 or HTTP/3 (with quic=true) tunnel.
+    Naive {
+        username: Option<String>,
+        quic: Option<bool>,
+        tls: Option<TlsParams>,
+        extras: HashMap<String, serde_json::Value>,
+    },
     /// Fallback for protocols not yet fully typed.
     Generic {
         extras: HashMap<String, serde_json::Value>,
@@ -173,6 +198,9 @@ impl ProxyParams {
             | ProxyParams::Socks { extras, .. }
             | ProxyParams::Http { extras, .. }
             | ProxyParams::Snell { extras, .. }
+            | ProxyParams::Ssh { extras, .. }
+            | ProxyParams::ShadowTls { extras, .. }
+            | ProxyParams::Naive { extras, .. }
             | ProxyParams::Generic { extras } => extras,
         }
     }

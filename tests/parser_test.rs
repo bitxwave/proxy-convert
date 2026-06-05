@@ -1148,3 +1148,181 @@ fn test_extract_clash_snell() {
         _ => panic!("Expected Snell"),
     }
 }
+
+// ── sing-box typed extract: ssh / shadowtls / naive / socks / http ──────
+
+#[test]
+fn test_extract_singbox_socks() {
+    let config: singbox::Config = serde_json::from_value(serde_json::json!({
+        "inbounds": [],
+        "outbounds": [{
+            "type": "socks",
+            "tag": "socks-1",
+            "server": "1.2.3.4",
+            "server_port": 1080,
+            "version": "5",
+            "username": "alice",
+            "password": "secret"
+        }]
+    }))
+    .unwrap();
+    let source = make_source(Config::SingBox(config), Protocol::SingBox);
+    let servers = source.extract_servers().unwrap();
+    assert_eq!(servers.len(), 1);
+    let s = &servers[0];
+    assert_eq!(s.protocol, "socks");
+    assert_eq!(s.password.as_deref(), Some("secret"));
+    match &s.params {
+        ProxyParams::Socks { version, username, .. } => {
+            assert_eq!(version.as_deref(), Some("5"));
+            assert_eq!(username.as_deref(), Some("alice"));
+        }
+        _ => panic!("Expected Socks"),
+    }
+}
+
+#[test]
+fn test_extract_singbox_http() {
+    let config: singbox::Config = serde_json::from_value(serde_json::json!({
+        "inbounds": [],
+        "outbounds": [{
+            "type": "http",
+            "tag": "http-1",
+            "server": "1.2.3.4",
+            "server_port": 8080,
+            "username": "admin",
+            "password": "admin",
+            "tls": {
+                "enabled": true,
+                "server_name": "proxy.example.com"
+            }
+        }]
+    }))
+    .unwrap();
+    let source = make_source(Config::SingBox(config), Protocol::SingBox);
+    let servers = source.extract_servers().unwrap();
+    assert_eq!(servers.len(), 1);
+    let s = &servers[0];
+    assert_eq!(s.protocol, "http");
+    assert_eq!(s.password.as_deref(), Some("admin"));
+    match &s.params {
+        ProxyParams::Http { username, tls, .. } => {
+            assert_eq!(username.as_deref(), Some("admin"));
+            let tls = tls.as_ref().expect("tls");
+            assert!(tls.enabled);
+            assert_eq!(tls.server_name.as_deref(), Some("proxy.example.com"));
+        }
+        _ => panic!("Expected Http"),
+    }
+}
+
+#[test]
+fn test_extract_singbox_ssh() {
+    let config: singbox::Config = serde_json::from_value(serde_json::json!({
+        "inbounds": [],
+        "outbounds": [{
+            "type": "ssh",
+            "tag": "ssh-1",
+            "server": "1.2.3.4",
+            "server_port": 22,
+            "user": "root",
+            "password": "hunter2",
+            "host_key": ["ssh-rsa AAAA..."],
+            "host_key_algorithms": ["ssh-ed25519", "ssh-rsa"]
+        }]
+    }))
+    .unwrap();
+    let source = make_source(Config::SingBox(config), Protocol::SingBox);
+    let servers = source.extract_servers().unwrap();
+    assert_eq!(servers.len(), 1);
+    let s = &servers[0];
+    assert_eq!(s.protocol, "ssh");
+    match &s.params {
+        ProxyParams::Ssh {
+            user,
+            host_key,
+            host_key_algorithms,
+            ..
+        } => {
+            assert_eq!(user.as_deref(), Some("root"));
+            assert_eq!(host_key.as_ref().map(|v| v.len()), Some(1));
+            assert_eq!(host_key_algorithms.as_ref().map(|v| v.len()), Some(2));
+        }
+        _ => panic!("Expected Ssh"),
+    }
+}
+
+#[test]
+fn test_extract_singbox_shadowtls() {
+    let config: singbox::Config = serde_json::from_value(serde_json::json!({
+        "inbounds": [],
+        "outbounds": [{
+            "type": "shadowtls",
+            "tag": "stls-1",
+            "server": "1.2.3.4",
+            "server_port": 443,
+            "version": "V3",
+            "password": "stls-pw",
+            "tls": {
+                "enabled": true,
+                "server_name": "tls.example.com"
+            }
+        }]
+    }))
+    .unwrap();
+    let source = make_source(Config::SingBox(config), Protocol::SingBox);
+    let servers = source.extract_servers().unwrap();
+    assert_eq!(servers.len(), 1);
+    let s = &servers[0];
+    assert_eq!(s.protocol, "shadowtls");
+    match &s.params {
+        ProxyParams::ShadowTls { version, tls, .. } => {
+            assert_eq!(*version, Some(3));
+            let tls = tls.as_ref().expect("tls");
+            assert!(tls.enabled);
+            assert_eq!(tls.server_name.as_deref(), Some("tls.example.com"));
+        }
+        _ => panic!("Expected ShadowTls"),
+    }
+}
+
+#[test]
+fn test_extract_singbox_naive() {
+    let config: singbox::Config = serde_json::from_value(serde_json::json!({
+        "inbounds": [],
+        "outbounds": [{
+            "type": "naive",
+            "tag": "naive-1",
+            "server": "1.2.3.4",
+            "server_port": 443,
+            "username": "user",
+            "password": "pass",
+            "quic": true,
+            "tls": {
+                "enabled": true,
+                "server_name": "naive.example.com"
+            }
+        }]
+    }))
+    .unwrap();
+    let source = make_source(Config::SingBox(config), Protocol::SingBox);
+    let servers = source.extract_servers().unwrap();
+    assert_eq!(servers.len(), 1);
+    let s = &servers[0];
+    assert_eq!(s.protocol, "naive");
+    assert_eq!(s.password.as_deref(), Some("pass"));
+    match &s.params {
+        ProxyParams::Naive {
+            username,
+            quic,
+            tls,
+            ..
+        } => {
+            assert_eq!(username.as_deref(), Some("user"));
+            assert_eq!(*quic, Some(true));
+            let tls = tls.as_ref().expect("tls");
+            assert!(tls.enabled);
+        }
+        _ => panic!("Expected Naive"),
+    }
+}
