@@ -70,10 +70,21 @@ impl ProtocolProcessor for ClashProcessor {
         let is_vmess = node.protocol == "vmess";
         let is_trojan = node.protocol == "trojan";
         let is_anytls = node.protocol == "anytls";
+        let is_vless = node.protocol == "vless";
+        let is_hysteria2 = node.protocol == "hysteria2";
+        let is_hysteria = node.protocol == "hysteria";
+        let is_tuic = node.protocol == "tuic";
+        let is_wireguard = node.protocol == "wireguard";
+        // Snell uses `psk` (in extras), not `password`; suppress Clash's
+        // generic-branch `password` insert so we don't duplicate the value
+        // under a key mihomo doesn't read for snell.
+        let is_snell = node.protocol == "snell";
 
-        // For Clash, shadowsocks type should be "ss"
+        // For Clash, shadowsocks type should be "ss" and socks should be "socks5".
         let protocol_type = if node.protocol == "shadowsocks" {
             "ss".to_string()
+        } else if node.protocol == "socks" {
+            "socks5".to_string()
         } else {
             node.protocol.clone()
         };
@@ -98,6 +109,16 @@ impl ProtocolProcessor for ClashProcessor {
             self.convert_trojan_params_to_clash(&mut config, node);
         } else if is_anytls {
             self.convert_anytls_params_to_clash(&mut config, node);
+        } else if is_vless {
+            self.convert_vless_params_to_clash(&mut config, node);
+        } else if is_hysteria2 {
+            self.convert_hysteria2_params_to_clash(&mut config, node);
+        } else if is_hysteria {
+            self.convert_hysteria_params_to_clash(&mut config, node);
+        } else if is_tuic {
+            self.convert_tuic_params_to_clash(&mut config, node);
+        } else if is_wireguard {
+            self.convert_wireguard_params_to_clash(&mut config, node);
         } else {
             // Generic handling for other protocols
             if let Some(method) = &node.method {
@@ -107,11 +128,16 @@ impl ProtocolProcessor for ClashProcessor {
                 );
             }
 
+            // Snell uses `psk`, not `password`; ProxyParams::Snell already
+            // carries it via extras. Inserting `password` would duplicate the
+            // value under a key mihomo doesn't read for snell.
             if let Some(password) = &node.password {
-                config.insert(
-                    "password".to_string(),
-                    serde_json::Value::String(password.clone()),
-                );
+                if !is_snell {
+                    config.insert(
+                        "password".to_string(),
+                        serde_json::Value::String(password.clone()),
+                    );
+                }
             }
 
             // For shadowsocks nodes, always add udp: true
@@ -200,6 +226,402 @@ impl ClashProcessor {
         // Transport handling — delegate to shared converter
         if let Some(transport) = params.get("transport") {
             crate::protocols::transport_converter::singbox_transport_to_clash(config, transport);
+        }
+    }
+
+    /// Convert VLESS parameters to Clash (mihomo) format.
+    fn convert_vless_params_to_clash(
+        &self,
+        config: &mut serde_json::Map<String, serde_json::Value>,
+        node: &ProxyServer,
+    ) {
+        let params = &node.extras();
+
+        if let crate::protocols::ProxyParams::Vless { uuid, flow, .. } = &node.params {
+            config.insert("uuid".to_string(), serde_json::Value::String(uuid.clone()));
+            if let Some(f) = flow {
+                config.insert("flow".to_string(), serde_json::Value::String(f.clone()));
+            }
+        }
+        config.insert("udp".to_string(), serde_json::Value::Bool(true));
+
+        // packet-encoding
+        if let Some(pe) = params.get("packet_encoding").or_else(|| params.get("packet-encoding")) {
+            config.insert("packet-encoding".to_string(), pe.clone());
+        }
+
+        // TLS
+        if let Some(tls) = params.get("tls") {
+            if let Some(tls_obj) = tls.as_object() {
+                let enabled = tls_obj.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+                if enabled || tls_obj.contains_key("reality") {
+                    config.insert("tls".to_string(), serde_json::Value::Bool(true));
+                    if let Some(sn) = tls_obj.get("server_name") {
+                        config.insert("servername".to_string(), sn.clone());
+                    }
+                    if let Some(insecure) = tls_obj.get("insecure") {
+                        config.insert("skip-cert-verify".to_string(), insecure.clone());
+                    }
+                    if let Some(alpn) = tls_obj.get("alpn") {
+                        config.insert("alpn".to_string(), alpn.clone());
+                    }
+                    if let Some(reality) = tls_obj.get("reality").and_then(|r| r.as_object()) {
+                        let mut reality_opts = serde_json::Map::new();
+                        if let Some(pk) = reality.get("public_key") {
+                            reality_opts.insert("public-key".to_string(), pk.clone());
+                        }
+                        if let Some(sid) = reality.get("short_id") {
+                            reality_opts.insert("short-id".to_string(), sid.clone());
+                        }
+                        config.insert(
+                            "reality-opts".to_string(),
+                            serde_json::Value::Object(reality_opts),
+                        );
+                    }
+                    if let Some(utls) = tls_obj.get("utls").and_then(|u| u.as_object()) {
+                        if let Some(fp) = utls.get("fingerprint") {
+                            config.insert("client-fingerprint".to_string(), fp.clone());
+                        }
+                    }
+                }
+            } else if tls.as_bool().unwrap_or(false) {
+                config.insert("tls".to_string(), serde_json::Value::Bool(true));
+            }
+        } else {
+            // Already-flat Clash params; pass through.
+            for k in ["servername", "sni", "skip-cert-verify", "alpn", "fingerprint", "client-fingerprint"] {
+                if let Some(v) = params.get(k) {
+                    config.insert(k.to_string(), v.clone());
+                }
+            }
+        }
+
+        // Transport
+        if let Some(transport) = params.get("transport") {
+            crate::protocols::transport_converter::singbox_transport_to_clash(config, transport);
+        } else if let Some(network) = params.get("network") {
+            // Pass-through Clash flat transport keys.
+            config.insert("network".to_string(), network.clone());
+            for k in ["ws-opts", "grpc-opts", "h2-opts", "http-opts"] {
+                if let Some(v) = params.get(k) {
+                    config.insert(k.to_string(), v.clone());
+                }
+            }
+        }
+    }
+
+    /// Convert Hysteria2 parameters to Clash (mihomo) format.
+    fn convert_hysteria2_params_to_clash(
+        &self,
+        config: &mut serde_json::Map<String, serde_json::Value>,
+        node: &ProxyServer,
+    ) {
+        let params = &node.extras();
+
+        if let Some(password) = &node.password {
+            config.insert(
+                "password".to_string(),
+                serde_json::Value::String(password.clone()),
+            );
+        }
+        config.insert("udp".to_string(), serde_json::Value::Bool(true));
+
+        if let crate::protocols::ProxyParams::Hysteria2 {
+            obfs,
+            obfs_password,
+            up_mbps,
+            down_mbps,
+            ..
+        } = &node.params
+        {
+            if let Some(o) = obfs {
+                config.insert("obfs".to_string(), serde_json::Value::String(o.clone()));
+            }
+            if let Some(pw) = obfs_password {
+                config.insert(
+                    "obfs-password".to_string(),
+                    serde_json::Value::String(pw.clone()),
+                );
+            }
+            if let Some(up) = up_mbps {
+                config.insert("up".to_string(), serde_json::Value::String(format!("{} Mbps", up)));
+            }
+            if let Some(down) = down_mbps {
+                config.insert(
+                    "down".to_string(),
+                    serde_json::Value::String(format!("{} Mbps", down)),
+                );
+            }
+        }
+
+        // TLS via shared converter.
+        if let Some(tls) = params.get("tls") {
+            crate::protocols::transport_converter::singbox_tls_to_clash(config, tls);
+        } else {
+            for k in ["sni", "skip-cert-verify", "alpn", "fingerprint"] {
+                if let Some(v) = params.get(k) {
+                    config.insert(k.to_string(), v.clone());
+                }
+            }
+        }
+    }
+
+    /// Convert Hysteria v1 parameters to Clash (mihomo) format.
+    fn convert_hysteria_params_to_clash(
+        &self,
+        config: &mut serde_json::Map<String, serde_json::Value>,
+        node: &ProxyServer,
+    ) {
+        let params = &node.extras();
+        // Hysteria v1 uses auth-str instead of password.
+        config.insert("udp".to_string(), serde_json::Value::Bool(true));
+
+        if let crate::protocols::ProxyParams::Hysteria {
+            auth_str,
+            obfs,
+            up_mbps,
+            down_mbps,
+            ..
+        } = &node.params
+        {
+            if let Some(a) = auth_str {
+                config.insert(
+                    "auth-str".to_string(),
+                    serde_json::Value::String(a.clone()),
+                );
+            }
+            if let Some(o) = obfs {
+                config.insert("obfs".to_string(), serde_json::Value::String(o.clone()));
+            }
+            if let Some(up) = up_mbps {
+                config.insert("up".to_string(), serde_json::Value::String(format!("{} Mbps", up)));
+            }
+            if let Some(down) = down_mbps {
+                config.insert(
+                    "down".to_string(),
+                    serde_json::Value::String(format!("{} Mbps", down)),
+                );
+            }
+        }
+
+        for (snake, kebab) in [
+            ("recv_window_conn", "recv-window-conn"),
+            ("recv_window", "recv-window"),
+            ("disable_mtu_discovery", "disable_mtu_discovery"),
+        ] {
+            if let Some(v) = params.get(snake).or_else(|| params.get(kebab)) {
+                config.insert(kebab.to_string(), v.clone());
+            }
+        }
+
+        if let Some(tls) = params.get("tls") {
+            crate::protocols::transport_converter::singbox_tls_to_clash(config, tls);
+        } else {
+            for k in ["sni", "skip-cert-verify", "alpn", "fingerprint"] {
+                if let Some(v) = params.get(k) {
+                    config.insert(k.to_string(), v.clone());
+                }
+            }
+        }
+    }
+
+    /// Convert TUIC v5 parameters to Clash (mihomo) format.
+    fn convert_tuic_params_to_clash(
+        &self,
+        config: &mut serde_json::Map<String, serde_json::Value>,
+        node: &ProxyServer,
+    ) {
+        let params = &node.extras();
+        config.insert("udp".to_string(), serde_json::Value::Bool(true));
+
+        if let crate::protocols::ProxyParams::Tuic {
+            uuid,
+            congestion_control,
+            udp_relay_mode,
+            zero_rtt_handshake,
+            heartbeat,
+            ..
+        } = &node.params
+        {
+            if let Some(u) = uuid {
+                config.insert("uuid".to_string(), serde_json::Value::String(u.clone()));
+            }
+            if let Some(p) = &node.password {
+                config.insert(
+                    "password".to_string(),
+                    serde_json::Value::String(p.clone()),
+                );
+            }
+            if let Some(cc) = congestion_control {
+                config.insert(
+                    "congestion-controller".to_string(),
+                    serde_json::Value::String(cc.clone()),
+                );
+            }
+            if let Some(udp) = udp_relay_mode {
+                config.insert(
+                    "udp-relay-mode".to_string(),
+                    serde_json::Value::String(udp.clone()),
+                );
+            }
+            if let Some(rtt) = zero_rtt_handshake {
+                config.insert(
+                    "reduce-rtt".to_string(),
+                    serde_json::Value::Bool(*rtt),
+                );
+            }
+            if let Some(hb) = heartbeat {
+                // mihomo's `heartbeat-interval` is integer milliseconds. sing-box
+                // sends a Go duration string ("10s", "500ms", etc); convert both
+                // common suffixes; fall back to a bare integer if hb is e.g. "1000".
+                let val = if let Some(ms) = hb.strip_suffix("ms").and_then(|s| s.trim().parse::<u64>().ok()) {
+                    serde_json::Value::Number(ms.into())
+                } else if let Some(s) = hb.strip_suffix('s').and_then(|s| s.trim().parse::<u64>().ok()) {
+                    serde_json::Value::Number((s * 1000).into())
+                } else if let Ok(n) = hb.parse::<u64>() {
+                    serde_json::Value::Number(n.into())
+                } else {
+                    // Unknown unit: pass through; mihomo will reject and the user
+                    // can fix it. Better than fabricating a wrong number.
+                    serde_json::Value::String(hb.clone())
+                };
+                config.insert("heartbeat-interval".to_string(), val);
+            }
+        }
+
+        if let Some(tls) = params.get("tls") {
+            crate::protocols::transport_converter::singbox_tls_to_clash(config, tls);
+            if let Some(disable_sni) = tls.get("disable_sni") {
+                config.insert("disable-sni".to_string(), disable_sni.clone());
+            }
+            if let Some(utls) = tls.get("utls").and_then(|u| u.as_object()) {
+                if let Some(fp) = utls.get("fingerprint") {
+                    config.insert("client-fingerprint".to_string(), fp.clone());
+                }
+            }
+        } else {
+            for k in ["sni", "skip-cert-verify", "alpn", "disable-sni", "fingerprint", "client-fingerprint"] {
+                if let Some(v) = params.get(k) {
+                    config.insert(k.to_string(), v.clone());
+                }
+            }
+        }
+    }
+
+    /// Convert WireGuard parameters to Clash (mihomo) format.
+    /// Always emits the simplified form when there's exactly one peer.
+    fn convert_wireguard_params_to_clash(
+        &self,
+        config: &mut serde_json::Map<String, serde_json::Value>,
+        node: &ProxyServer,
+    ) {
+        // Drop generic password key if any was carried over.
+        config.remove("password");
+        config.insert("udp".to_string(), serde_json::Value::Bool(true));
+
+        if let crate::protocols::ProxyParams::WireGuard {
+            private_key,
+            local_addresses,
+            mtu,
+            peers,
+            ..
+        } = &node.params
+        {
+            config.insert(
+                "private-key".to_string(),
+                serde_json::Value::String(private_key.clone()),
+            );
+            // Split combined local_addresses back into ip / ipv6.
+            for addr in local_addresses {
+                let host = addr.split('/').next().unwrap_or(addr);
+                if host.contains(':') {
+                    config
+                        .entry("ipv6".to_string())
+                        .or_insert(serde_json::Value::String(host.to_string()));
+                } else {
+                    config
+                        .entry("ip".to_string())
+                        .or_insert(serde_json::Value::String(host.to_string()));
+                }
+            }
+            if let Some(m) = mtu {
+                config.insert("mtu".to_string(), serde_json::Value::Number((*m).into()));
+            }
+
+            if peers.len() == 1 {
+                // Simplified form — top-level peer fields override server/port we already wrote.
+                let p = &peers[0];
+                config.insert(
+                    "server".to_string(),
+                    serde_json::Value::String(p.server.clone()),
+                );
+                config.insert(
+                    "port".to_string(),
+                    serde_json::Value::Number(p.server_port.into()),
+                );
+                config.insert(
+                    "public-key".to_string(),
+                    serde_json::Value::String(p.public_key.clone()),
+                );
+                if let Some(psk) = &p.pre_shared_key {
+                    config.insert(
+                        "pre-shared-key".to_string(),
+                        serde_json::Value::String(psk.clone()),
+                    );
+                }
+                if !p.allowed_ips.is_empty() {
+                    config.insert(
+                        "allowed-ips".to_string(),
+                        serde_json::Value::Array(
+                            p.allowed_ips
+                                .iter()
+                                .map(|s| serde_json::Value::String(s.clone()))
+                                .collect(),
+                        ),
+                    );
+                }
+                if let Some(reserved) = &p.reserved {
+                    config.insert("reserved".to_string(), reserved.clone());
+                }
+            } else if !peers.is_empty() {
+                // Full form — peers list. Drop server/port we wrote earlier.
+                config.remove("server");
+                config.remove("port");
+                let peers_arr: Vec<serde_json::Value> = peers
+                    .iter()
+                    .map(|p| {
+                        let mut po = serde_json::Map::new();
+                        po.insert("server".to_string(), serde_json::Value::String(p.server.clone()));
+                        po.insert("port".to_string(), serde_json::Value::Number(p.server_port.into()));
+                        po.insert(
+                            "public-key".to_string(),
+                            serde_json::Value::String(p.public_key.clone()),
+                        );
+                        if let Some(psk) = &p.pre_shared_key {
+                            po.insert(
+                                "pre-shared-key".to_string(),
+                                serde_json::Value::String(psk.clone()),
+                            );
+                        }
+                        if !p.allowed_ips.is_empty() {
+                            po.insert(
+                                "allowed-ips".to_string(),
+                                serde_json::Value::Array(
+                                    p.allowed_ips
+                                        .iter()
+                                        .map(|s| serde_json::Value::String(s.clone()))
+                                        .collect(),
+                                ),
+                            );
+                        }
+                        if let Some(reserved) = &p.reserved {
+                            po.insert("reserved".to_string(), reserved.clone());
+                        }
+                        serde_json::Value::Object(po)
+                    })
+                    .collect();
+                config.insert("peers".to_string(), serde_json::Value::Array(peers_arr));
+            }
         }
     }
 

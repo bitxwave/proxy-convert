@@ -64,8 +64,38 @@ pub enum ProxyParams {
         extras: HashMap<String, serde_json::Value>,
     },
     Hysteria2 {
+        obfs: Option<String>,
         obfs_password: Option<String>,
+        up_mbps: Option<u32>,
+        down_mbps: Option<u32>,
         tls: Option<TlsParams>,
+        extras: HashMap<String, serde_json::Value>,
+    },
+    Hysteria {
+        auth_str: Option<String>,
+        obfs: Option<String>,
+        up_mbps: Option<u32>,
+        down_mbps: Option<u32>,
+        tls: Option<TlsParams>,
+        extras: HashMap<String, serde_json::Value>,
+    },
+    Tuic {
+        uuid: Option<String>,
+        token: Option<String>,
+        congestion_control: Option<String>,
+        udp_relay_mode: Option<String>,
+        zero_rtt_handshake: Option<bool>,
+        heartbeat: Option<String>,
+        tls: Option<TlsParams>,
+        extras: HashMap<String, serde_json::Value>,
+    },
+    /// WireGuard params. mihomo accepts both "simplified" (top-level peer) and
+    /// full (peers list); we always normalize to a `peers` list when emitting.
+    WireGuard {
+        private_key: String,
+        local_addresses: Vec<String>,
+        mtu: Option<u32>,
+        peers: Vec<WireGuardPeerParams>,
         extras: HashMap<String, serde_json::Value>,
     },
     /// AnyTLS protocol (https://github.com/anytls/anytls-go).
@@ -77,6 +107,64 @@ pub enum ProxyParams {
         idle_session_check_interval: Option<serde_json::Value>,
         idle_session_timeout: Option<serde_json::Value>,
         min_idle_session: Option<u32>,
+        extras: HashMap<String, serde_json::Value>,
+    },
+    /// ShadowsocksR (legacy SS variant; Clash-only).
+    ShadowsocksR {
+        cipher: String,
+        protocol: String,
+        obfs: String,
+        obfs_param: Option<String>,
+        protocol_param: Option<String>,
+        udp: Option<bool>,
+        extras: HashMap<String, serde_json::Value>,
+    },
+    /// SOCKS proxy. Shared between Clash (`socks5`) and sing-box (`socks`,
+    /// which adds the `version` discriminator).
+    Socks {
+        version: Option<String>,
+        username: Option<String>,
+        tls: Option<TlsParams>,
+        udp: Option<bool>,
+        extras: HashMap<String, serde_json::Value>,
+    },
+    /// HTTP/HTTPS proxy. Shared between Clash and sing-box.
+    Http {
+        username: Option<String>,
+        tls: Option<TlsParams>,
+        extras: HashMap<String, serde_json::Value>,
+    },
+    /// Snell (mihomo-only). v3+ uses `psk`+`version` and an optional
+    /// `obfs-opts` block whose shape is `{mode, host}`.
+    Snell {
+        psk: String,
+        version: Option<u32>,
+        obfs_opts: Option<serde_json::Value>,
+        extras: HashMap<String, serde_json::Value>,
+    },
+    /// SSH (sing-box-only). Either password or private-key auth; we keep
+    /// both raw because URL share-links can't represent keys at all.
+    Ssh {
+        user: Option<String>,
+        private_key: Option<String>,
+        private_key_path: Option<String>,
+        private_key_passphrase: Option<String>,
+        host_key: Option<Vec<String>>,
+        host_key_algorithms: Option<Vec<String>>,
+        extras: HashMap<String, serde_json::Value>,
+    },
+    /// ShadowTLS (sing-box-only). Wraps any TCP outbound under TLS;
+    /// version is 1/2/3 and `tls` is the inner TLS block.
+    ShadowTls {
+        version: Option<u8>,
+        tls: Option<TlsParams>,
+        extras: HashMap<String, serde_json::Value>,
+    },
+    /// Naive (sing-box-only). HTTP/2 or HTTP/3 (with quic=true) tunnel.
+    Naive {
+        username: Option<String>,
+        quic: Option<bool>,
+        tls: Option<TlsParams>,
         extras: HashMap<String, serde_json::Value>,
     },
     /// Fallback for protocols not yet fully typed.
@@ -102,10 +190,34 @@ impl ProxyParams {
             | ProxyParams::Trojan { extras, .. }
             | ProxyParams::Vless { extras, .. }
             | ProxyParams::Hysteria2 { extras, .. }
+            | ProxyParams::Hysteria { extras, .. }
+            | ProxyParams::Tuic { extras, .. }
+            | ProxyParams::WireGuard { extras, .. }
             | ProxyParams::AnyTls { extras, .. }
+            | ProxyParams::ShadowsocksR { extras, .. }
+            | ProxyParams::Socks { extras, .. }
+            | ProxyParams::Http { extras, .. }
+            | ProxyParams::Snell { extras, .. }
+            | ProxyParams::Ssh { extras, .. }
+            | ProxyParams::ShadowTls { extras, .. }
+            | ProxyParams::Naive { extras, .. }
             | ProxyParams::Generic { extras } => extras,
         }
     }
+}
+
+/// WireGuard peer params (typed, used inside ProxyParams::WireGuard).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WireGuardPeerParams {
+    pub server: String,
+    pub server_port: u16,
+    pub public_key: String,
+    pub pre_shared_key: Option<String>,
+    pub allowed_ips: Vec<String>,
+    /// Reserved bytes (mihomo allows list `[209,98,59]` or string `"U4An"`).
+    /// Stored as raw JSON to keep the input shape verbatim.
+    pub reserved: Option<serde_json::Value>,
+    pub persistent_keepalive: Option<u32>,
 }
 
 /// TLS configuration (shared across protocols)
