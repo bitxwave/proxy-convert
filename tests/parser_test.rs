@@ -1473,3 +1473,232 @@ fn test_clash_snell_to_clash_does_not_emit_password() {
         json
     );
 }
+
+// ── singbox → Clash emit for the 5 high-priority protocols ─────────────
+//
+// The Clash → sing-box direction had explicit converters from commit
+// 7afa819; these probe the reverse direction to lock in the round-trip and
+// catch the kind of bug found here in TUIC's heartbeat unit.
+
+#[test]
+fn test_singbox_vless_reality_to_clash() {
+    use proxy_convert::protocols::clash::template_processor::ClashProcessor;
+    use proxy_convert::protocols::ProtocolProcessor;
+    let cfg: singbox::Config = serde_json::from_value(serde_json::json!({
+        "inbounds": [],
+        "outbounds": [{
+            "type": "vless",
+            "tag": "vless-r",
+            "server": "1.2.3.4",
+            "server_port": 443,
+            "uuid": "00000000-0000-0000-0000-000000000001",
+            "flow": "xtls-rprx-vision",
+            "tls": {
+                "enabled": true,
+                "server_name": "example.com",
+                "utls": {"enabled": true, "fingerprint": "chrome"},
+                "reality": {"enabled": true, "public_key": "abc", "short_id": "ff"}
+            }
+        }]
+    }))
+    .unwrap();
+    let s = make_source(Config::SingBox(cfg), Protocol::SingBox);
+    let servers = s.extract_servers().unwrap();
+    let p = ClashProcessor;
+    let json: serde_json::Value =
+        serde_json::from_str(&p.create_node_config(&servers[0])).unwrap();
+
+    assert_eq!(json["type"], "vless");
+    assert_eq!(json["uuid"], "00000000-0000-0000-0000-000000000001");
+    assert_eq!(json["flow"], "xtls-rprx-vision");
+    assert_eq!(json["tls"], true);
+    assert_eq!(json["servername"], "example.com");
+    assert_eq!(json["client-fingerprint"], "chrome");
+    assert_eq!(json["reality-opts"]["public-key"], "abc");
+    assert_eq!(json["reality-opts"]["short-id"], "ff");
+}
+
+#[test]
+fn test_singbox_hysteria2_to_clash() {
+    use proxy_convert::protocols::clash::template_processor::ClashProcessor;
+    use proxy_convert::protocols::ProtocolProcessor;
+    let cfg: singbox::Config = serde_json::from_value(serde_json::json!({
+        "inbounds": [],
+        "outbounds": [{
+            "type": "hysteria2",
+            "tag": "hy2-1",
+            "server": "1.2.3.4",
+            "server_port": 443,
+            "password": "hy2-pw",
+            "up_mbps": 30,
+            "down_mbps": 200,
+            "obfs": {"type": "salamander", "password": "obfs-pw"},
+            "tls": {"enabled": true, "server_name": "host.com"}
+        }]
+    }))
+    .unwrap();
+    let s = make_source(Config::SingBox(cfg), Protocol::SingBox);
+    let servers = s.extract_servers().unwrap();
+    let p = ClashProcessor;
+    let json: serde_json::Value =
+        serde_json::from_str(&p.create_node_config(&servers[0])).unwrap();
+
+    assert_eq!(json["type"], "hysteria2");
+    assert_eq!(json["password"], "hy2-pw");
+    // mihomo accepts "30 Mbps" / "200 Mbps" (string with unit).
+    assert_eq!(json["up"], "30 Mbps");
+    assert_eq!(json["down"], "200 Mbps");
+    // mihomo flattens obfs to a string + obfs-password sibling, not nested.
+    assert_eq!(json["obfs"], "salamander");
+    assert_eq!(json["obfs-password"], "obfs-pw");
+    assert_eq!(json["sni"], "host.com");
+}
+
+#[test]
+fn test_singbox_hysteria_v1_to_clash() {
+    use proxy_convert::protocols::clash::template_processor::ClashProcessor;
+    use proxy_convert::protocols::ProtocolProcessor;
+    let cfg: singbox::Config = serde_json::from_value(serde_json::json!({
+        "inbounds": [],
+        "outbounds": [{
+            "type": "hysteria",
+            "tag": "hy-1",
+            "server": "1.2.3.4",
+            "server_port": 443,
+            "auth_str": "pwd",
+            "up": "30 Mbps",
+            "up_mbps": 30,
+            "down": "200 Mbps",
+            "down_mbps": 200,
+            "obfs": "obfs-str",
+            "tls": {"enabled": true, "server_name": "h1.example.com", "alpn": ["h3"]}
+        }]
+    }))
+    .unwrap();
+    let s = make_source(Config::SingBox(cfg), Protocol::SingBox);
+    let servers = s.extract_servers().unwrap();
+    let p = ClashProcessor;
+    let json: serde_json::Value =
+        serde_json::from_str(&p.create_node_config(&servers[0])).unwrap();
+
+    assert_eq!(json["type"], "hysteria");
+    // mihomo uses `auth-str` (the kebab-case mirror of sing-box's auth_str).
+    assert_eq!(json["auth-str"], "pwd");
+    assert_eq!(json["obfs"], "obfs-str");
+    assert_eq!(json["sni"], "h1.example.com");
+    assert_eq!(json["alpn"][0], "h3");
+}
+
+#[test]
+fn test_singbox_tuic_to_clash_converts_heartbeat_to_milliseconds() {
+    // The bug found by probing this direction: sing-box's `heartbeat: "10s"`
+    // was emitted verbatim as `heartbeat-interval: "10s"`, but mihomo expects
+    // an integer in milliseconds. The fix converts duration suffixes
+    // (s / ms) to a numeric ms value.
+    use proxy_convert::protocols::clash::template_processor::ClashProcessor;
+    use proxy_convert::protocols::ProtocolProcessor;
+    let cfg: singbox::Config = serde_json::from_value(serde_json::json!({
+        "inbounds": [],
+        "outbounds": [{
+            "type": "tuic",
+            "tag": "tuic-1",
+            "server": "1.2.3.4",
+            "server_port": 443,
+            "uuid": "00000000-0000-0000-0000-000000000002",
+            "password": "tuic-pw",
+            "congestion_control": "bbr",
+            "udp_relay_mode": "native",
+            "zero_rtt_handshake": true,
+            "heartbeat": "10s",
+            "tls": {"enabled": true, "server_name": "tuic.example.com", "alpn": ["h3"]}
+        }]
+    }))
+    .unwrap();
+    let s = make_source(Config::SingBox(cfg), Protocol::SingBox);
+    let servers = s.extract_servers().unwrap();
+    let p = ClashProcessor;
+    let json: serde_json::Value =
+        serde_json::from_str(&p.create_node_config(&servers[0])).unwrap();
+
+    assert_eq!(json["type"], "tuic");
+    assert_eq!(json["uuid"], "00000000-0000-0000-0000-000000000002");
+    assert_eq!(json["password"], "tuic-pw");
+    assert_eq!(json["congestion-controller"], "bbr");
+    assert_eq!(json["udp-relay-mode"], "native");
+    assert_eq!(json["reduce-rtt"], true);
+    // The fix: "10s" → 10_000 (integer milliseconds).
+    assert_eq!(json["heartbeat-interval"], 10_000);
+    assert_eq!(json["sni"], "tuic.example.com");
+}
+
+#[test]
+fn test_singbox_tuic_heartbeat_in_ms_passthrough() {
+    // Cover the other suffix mihomo's converter encounters: sing-box may also
+    // emit "500ms" verbatim; should land as 500.
+    use proxy_convert::protocols::clash::template_processor::ClashProcessor;
+    use proxy_convert::protocols::ProtocolProcessor;
+    let cfg: singbox::Config = serde_json::from_value(serde_json::json!({
+        "inbounds": [],
+        "outbounds": [{
+            "type": "tuic",
+            "tag": "tuic-2",
+            "server": "1.2.3.4",
+            "server_port": 443,
+            "uuid": "00000000-0000-0000-0000-000000000003",
+            "password": "p",
+            "heartbeat": "500ms",
+            "tls": {"enabled": true, "server_name": "x.example.com"}
+        }]
+    }))
+    .unwrap();
+    let s = make_source(Config::SingBox(cfg), Protocol::SingBox);
+    let servers = s.extract_servers().unwrap();
+    let p = ClashProcessor;
+    let json: serde_json::Value =
+        serde_json::from_str(&p.create_node_config(&servers[0])).unwrap();
+    assert_eq!(json["heartbeat-interval"], 500);
+}
+
+#[test]
+fn test_singbox_wireguard_to_clash_splits_local_addresses() {
+    // sing-box uses `local_address: ["10.0.0.2/32", "fd00::2/128"]`. mihomo
+    // splits these into separate `ip` and `ipv6` fields without the mask.
+    use proxy_convert::protocols::clash::template_processor::ClashProcessor;
+    use proxy_convert::protocols::ProtocolProcessor;
+    let cfg: singbox::Config = serde_json::from_value(serde_json::json!({
+        "inbounds": [],
+        "outbounds": [{
+            "type": "wireguard",
+            "tag": "wg-1",
+            "private_key": "abcdef==",
+            "local_address": ["10.0.0.2/32", "fd00::2/128"],
+            "mtu": 1408,
+            "peers": [{
+                "server": "5.6.7.8",
+                "server_port": 51820,
+                "public_key": "deadbeef==",
+                "allowed_ips": ["0.0.0.0/0"],
+                "reserved": [9, 8, 7]
+            }]
+        }]
+    }))
+    .unwrap();
+    let s = make_source(Config::SingBox(cfg), Protocol::SingBox);
+    let servers = s.extract_servers().unwrap();
+    let p = ClashProcessor;
+    let json: serde_json::Value =
+        serde_json::from_str(&p.create_node_config(&servers[0])).unwrap();
+
+    assert_eq!(json["type"], "wireguard");
+    // mihomo's simplified form: top-level server/port from the (single) peer.
+    assert_eq!(json["server"], "5.6.7.8");
+    assert_eq!(json["port"], 51820);
+    assert_eq!(json["private-key"], "abcdef==");
+    assert_eq!(json["public-key"], "deadbeef==");
+    // /32 and /128 masks stripped.
+    assert_eq!(json["ip"], "10.0.0.2");
+    assert_eq!(json["ipv6"], "fd00::2");
+    assert_eq!(json["mtu"], 1408);
+    assert_eq!(json["allowed-ips"][0], "0.0.0.0/0");
+    assert_eq!(json["reserved"][0], 9);
+}

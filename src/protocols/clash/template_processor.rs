@@ -471,10 +471,18 @@ impl ClashProcessor {
                 );
             }
             if let Some(hb) = heartbeat {
-                // strip "ms" suffix if present
-                let val = if let Some(n) = hb.strip_suffix("ms").and_then(|s| s.parse::<u64>().ok()) {
+                // mihomo's `heartbeat-interval` is integer milliseconds. sing-box
+                // sends a Go duration string ("10s", "500ms", etc); convert both
+                // common suffixes; fall back to a bare integer if hb is e.g. "1000".
+                let val = if let Some(ms) = hb.strip_suffix("ms").and_then(|s| s.trim().parse::<u64>().ok()) {
+                    serde_json::Value::Number(ms.into())
+                } else if let Some(s) = hb.strip_suffix('s').and_then(|s| s.trim().parse::<u64>().ok()) {
+                    serde_json::Value::Number((s * 1000).into())
+                } else if let Ok(n) = hb.parse::<u64>() {
                     serde_json::Value::Number(n.into())
                 } else {
+                    // Unknown unit: pass through; mihomo will reject and the user
+                    // can fix it. Better than fabricating a wrong number.
                     serde_json::Value::String(hb.clone())
                 };
                 config.insert("heartbeat-interval".to_string(), val);
