@@ -75,10 +75,16 @@ impl ProtocolProcessor for ClashProcessor {
         let is_hysteria = node.protocol == "hysteria";
         let is_tuic = node.protocol == "tuic";
         let is_wireguard = node.protocol == "wireguard";
+        // Snell uses `psk` (in extras), not `password`; suppress Clash's
+        // generic-branch `password` insert so we don't duplicate the value
+        // under a key mihomo doesn't read for snell.
+        let is_snell = node.protocol == "snell";
 
-        // For Clash, shadowsocks type should be "ss"
+        // For Clash, shadowsocks type should be "ss" and socks should be "socks5".
         let protocol_type = if node.protocol == "shadowsocks" {
             "ss".to_string()
+        } else if node.protocol == "socks" {
+            "socks5".to_string()
         } else {
             node.protocol.clone()
         };
@@ -122,11 +128,16 @@ impl ProtocolProcessor for ClashProcessor {
                 );
             }
 
+            // Snell uses `psk`, not `password`; ProxyParams::Snell already
+            // carries it via extras. Inserting `password` would duplicate the
+            // value under a key mihomo doesn't read for snell.
             if let Some(password) = &node.password {
-                config.insert(
-                    "password".to_string(),
-                    serde_json::Value::String(password.clone()),
-                );
+                if !is_snell {
+                    config.insert(
+                        "password".to_string(),
+                        serde_json::Value::String(password.clone()),
+                    );
+                }
             }
 
             // For shadowsocks nodes, always add udp: true

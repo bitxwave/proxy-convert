@@ -1326,3 +1326,150 @@ fn test_extract_singbox_naive() {
         _ => panic!("Expected Naive"),
     }
 }
+
+// ── Cross-format emit: socks5 ↔ socks, http, snell ──────────────────────
+
+#[test]
+fn test_clash_socks5_to_singbox_renames_type_and_rebuilds_tls() {
+    use proxy_convert::protocols::singbox::template_processor::SingboxProcessor;
+    use proxy_convert::protocols::ProtocolProcessor;
+
+    let cfg: clash::Config = serde_json::from_value(serde_json::json!({
+        "proxies": [{
+            "name": "socks-1",
+            "type": "socks5",
+            "server": "1.2.3.4",
+            "port": 1080,
+            "username": "alice",
+            "password": "secret",
+            "tls": true,
+            "skip-cert-verify": true,
+            "udp": true
+        }]
+    }))
+    .unwrap();
+    let source = make_source(Config::Clash(cfg), Protocol::Clash);
+    let servers = source.extract_servers().unwrap();
+    let p = SingboxProcessor;
+    let json: serde_json::Value =
+        serde_json::from_str(&p.create_node_config(&servers[0])).unwrap();
+
+    // type renamed socks5 → socks
+    assert_eq!(json["type"], "socks");
+    assert_eq!(json["server"], "1.2.3.4");
+    assert_eq!(json["server_port"], 1080);
+    assert_eq!(json["username"], "alice");
+    assert_eq!(json["password"], "secret");
+    assert_eq!(json["version"], "5");
+    // boolean tls + skip-cert-verify rebuilt into nested object
+    assert_eq!(json["tls"]["enabled"], true);
+    assert_eq!(json["tls"]["insecure"], true);
+    // mihomo's `udp` doesn't belong on sing-box socks; should be dropped.
+    assert!(json.get("udp").is_none(), "stray udp leaked: {}", json);
+    assert!(
+        json.get("skip-cert-verify").is_none(),
+        "stray skip-cert-verify leaked: {}",
+        json
+    );
+}
+
+#[test]
+fn test_singbox_socks_to_clash_renames_type() {
+    use proxy_convert::protocols::clash::template_processor::ClashProcessor;
+    use proxy_convert::protocols::ProtocolProcessor;
+
+    let cfg: singbox::Config = serde_json::from_value(serde_json::json!({
+        "inbounds": [],
+        "outbounds": [{
+            "type": "socks",
+            "tag": "socks-1",
+            "server": "1.2.3.4",
+            "server_port": 1080,
+            "version": "5",
+            "username": "alice",
+            "password": "secret"
+        }]
+    }))
+    .unwrap();
+    let source = make_source(Config::SingBox(cfg), Protocol::SingBox);
+    let servers = source.extract_servers().unwrap();
+    let p = ClashProcessor;
+    let json: serde_json::Value =
+        serde_json::from_str(&p.create_node_config(&servers[0])).unwrap();
+
+    // type renamed socks → socks5
+    assert_eq!(json["type"], "socks5");
+    assert_eq!(json["server"], "1.2.3.4");
+    assert_eq!(json["port"], 1080);
+    assert_eq!(json["username"], "alice");
+    assert_eq!(json["password"], "secret");
+}
+
+#[test]
+fn test_clash_http_to_singbox_passthrough_preserves_tls() {
+    // HTTP field shape is identical between Clash and sing-box (username,
+    // password, tls), so the generic path already produced the right output —
+    // but we lock that in here so a future refactor can't silently break it.
+    use proxy_convert::protocols::singbox::template_processor::SingboxProcessor;
+    use proxy_convert::protocols::ProtocolProcessor;
+
+    let cfg: clash::Config = serde_json::from_value(serde_json::json!({
+        "proxies": [{
+            "name": "http-1",
+            "type": "http",
+            "server": "1.2.3.4",
+            "port": 8080,
+            "username": "admin",
+            "password": "admin"
+        }]
+    }))
+    .unwrap();
+    let source = make_source(Config::Clash(cfg), Protocol::Clash);
+    let servers = source.extract_servers().unwrap();
+    let p = SingboxProcessor;
+    let json: serde_json::Value =
+        serde_json::from_str(&p.create_node_config(&servers[0])).unwrap();
+
+    assert_eq!(json["type"], "http");
+    assert_eq!(json["server_port"], 8080);
+    assert_eq!(json["username"], "admin");
+    assert_eq!(json["password"], "admin");
+}
+
+#[test]
+fn test_clash_snell_to_clash_does_not_emit_password() {
+    // mihomo Snell uses `psk`, not `password`. Generic emit used to insert
+    // `password: <psk>` because we set ProxyServer.password = ssr_or_snell_psk
+    // for routing convenience. The output now suppresses that key for snell.
+    use proxy_convert::protocols::clash::template_processor::ClashProcessor;
+    use proxy_convert::protocols::ProtocolProcessor;
+
+    let cfg: clash::Config = serde_json::from_value(serde_json::json!({
+        "proxies": [{
+            "name": "snell-1",
+            "type": "snell",
+            "server": "1.2.3.4",
+            "port": 443,
+            "psk": "yourpsk",
+            "version": 3,
+            "obfs-opts": {"mode": "tls", "host": "cdn.example.com"}
+        }]
+    }))
+    .unwrap();
+    let source = make_source(Config::Clash(cfg), Protocol::Clash);
+    let servers = source.extract_servers().unwrap();
+    let p = ClashProcessor;
+    let json: serde_json::Value =
+        serde_json::from_str(&p.create_node_config(&servers[0])).unwrap();
+
+    assert_eq!(json["type"], "snell");
+    assert_eq!(json["psk"], "yourpsk");
+    assert_eq!(json["version"], 3);
+    assert_eq!(json["obfs-opts"]["mode"], "tls");
+    // The bug: `password: yourpsk` should NOT appear.
+    assert!(
+        json.get("password").is_none(),
+        "spurious password leaked into snell output: {}",
+        json
+    );
+}

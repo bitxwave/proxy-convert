@@ -475,6 +475,49 @@ impl SingboxProcessor {
         }
     }
 
+    /// Convert SOCKS parameters to sing-box format. Reads typed
+    /// `ProxyParams::Socks` so sing-box→sing-box and Clash→sing-box both go
+    /// through the same path. The dispatcher's generic-extras branch is
+    /// skipped for socks, so we own the full mapping here.
+    pub fn convert_socks_params_to_singbox(
+        config: &mut serde_json::Map<String, serde_json::Value>,
+        node: &ProxyServer,
+    ) {
+        if let crate::protocols::ProxyParams::Socks {
+            version,
+            username,
+            tls,
+            ..
+        } = &node.params
+        {
+            if let Some(v) = version {
+                config.insert("version".to_string(), serde_json::Value::String(v.clone()));
+            }
+            if let Some(u) = username {
+                config.insert("username".to_string(), serde_json::Value::String(u.clone()));
+            }
+            // Clash carries TLS as a flat `tls: true` boolean + `skip-cert-verify`;
+            // sing-box wants a nested object. ProxyParams::Socks already merged
+            // both shapes into TlsParams during extraction, so just rebuild.
+            if let Some(tls_p) = tls {
+                if tls_p.enabled {
+                    let mut tls_obj = serde_json::Map::new();
+                    tls_obj.insert("enabled".to_string(), serde_json::Value::Bool(true));
+                    if let Some(sn) = &tls_p.server_name {
+                        tls_obj.insert(
+                            "server_name".to_string(),
+                            serde_json::Value::String(sn.clone()),
+                        );
+                    }
+                    if let Some(ins) = tls_p.insecure {
+                        tls_obj.insert("insecure".to_string(), serde_json::Value::Bool(ins));
+                    }
+                    config.insert("tls".to_string(), serde_json::Value::Object(tls_obj));
+                }
+            }
+        }
+    }
+
 }
 
 impl ProtocolProcessor for SingboxProcessor {
@@ -624,9 +667,16 @@ impl ProtocolProcessor for SingboxProcessor {
         let is_hysteria = node.protocol == "hysteria";
         let is_tuic = node.protocol == "tuic";
         let is_wireguard = node.protocol == "wireguard";
+        // Clash uses `socks5`, sing-box uses `socks`; rename so a Clash source
+        // converted to sing-box doesn't emit `type: socks5` (which sing-box
+        // rejects). Tracked separately because it also needs Clash-style
+        // `tls: true` + `skip-cert-verify` rebuilt into the nested TLS block.
+        let is_socks = node.protocol == "socks" || node.protocol == "socks5";
 
         let protocol_type = if node.protocol == "ss" {
             "shadowsocks".to_string()
+        } else if node.protocol == "socks5" {
+            "socks".to_string()
         } else {
             node.protocol.clone()
         };
@@ -685,6 +735,8 @@ impl ProtocolProcessor for SingboxProcessor {
             Self::convert_tuic_params_to_singbox(&mut config, node);
         } else if is_wireguard {
             Self::convert_wireguard_params_to_singbox(&mut config, node);
+        } else if is_socks {
+            Self::convert_socks_params_to_singbox(&mut config, node);
         } else {
             // Generic parameter handling
             // Skip fields that are already handled or not needed in sing-box
