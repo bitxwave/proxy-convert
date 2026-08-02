@@ -1,3 +1,4 @@
+use crate::protocols::singbox::common::base::SingleOrMultipleValue;
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 use indexmap::IndexMap;
@@ -19,7 +20,7 @@ pub struct HTTP {
     host: Option<Vec<String>>,
     path: Option<String>,
     method: Option<String>,
-    headers: Option<IndexMap<String, String>>,
+    headers: Option<IndexMap<String, SingleOrMultipleValue<String>>>,
     idle_timeout: Option<String>,
     ping_timeout: Option<String>,
 }
@@ -28,7 +29,7 @@ pub struct HTTP {
 #[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct WS {
     path: Option<String>,
-    headers: Option<IndexMap<String, String>>,
+    headers: Option<IndexMap<String, SingleOrMultipleValue<String>>>,
     max_early_data: Option<usize>,
     early_data_header_name: Option<String>,
 }
@@ -51,5 +52,5 @@ pub struct GRPC {
 pub struct HttpUpgrade {
     host: Option<String>,
     path: Option<String>,
-    headers: Option<IndexMap<String, String>>,
+    headers: Option<IndexMap<String, SingleOrMultipleValue<String>>>,
 }
